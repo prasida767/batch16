@@ -92,7 +92,7 @@ Copy it to `.env.local` (gitignored). Never commit `.env.local` or real password
 |----------|----------|--------|
 | `NEXT_PUBLIC_SUPABASE_URL` | Yes | Project URL only (no `/rest/v1/`) |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Yes | Public anon key — OK in the browser |
-| `DATABASE_URL` | Yes | Session pooler Postgres URI — **server only** |
+| `DATABASE_URL` | Yes | Transaction pooler Postgres URI (port **6543**) — **server only** |
 | `FPL_LEAGUE_ID` | Yes | Classic league ID from FPL |
 | `ADMIN_EMAILS` | Yes for admin | Comma-separated emails for `/admin` |
 | `NEXT_PUBLIC_SITE_URL` | Prod / redirects | e.g. `https://your-app.vercel.app` |

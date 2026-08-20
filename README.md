@@ -76,7 +76,7 @@ Copy [`.env.example`](./.env.example) → `.env.local`.
 |----------|----------|---------------------|
 | `NEXT_PUBLIC_SUPABASE_URL` | Yes | Supabase → Settings → API |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Yes | Supabase → Settings → API |
-| `DATABASE_URL` | Yes | Supabase → Database (session pooler) |
+| `DATABASE_URL` | Yes | Supabase → Database → **Transaction** pooler (port **6543**) |
 | `FPL_LEAGUE_ID` | Yes | Classic league ID on FPL |
 | `ADMIN_EMAILS` | For `/admin` | Your email(s), comma-separated |
 | `NEXT_PUBLIC_SITE_URL` | Production | Deployed site URL (auth redirects) |
