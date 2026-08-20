@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none">
+  <rect width="32" height="32" rx="8" fill="#0B3D2E"/>
+  <rect x="1" y="1" width="30" height="30" rx="7" stroke="#F0C14A" stroke-opacity="0.55" stroke-width="1.2"/>
+  <path d="M16 4.8C16 4.8 9.2 6.4 7.2 7.3V18.6C7.2 23.8 11.2 27.8 16 29.3C20.8 27.8 24.8 23.8 24.8 18.6V7.3C22.8 6.4 16 4.8 16 4.8Z" fill="#1A9B62"/>
+  <circle cx="16" cy="9.1" r="1.7" fill="#F7F4EC"/>
+  <path d="M16 7.55C15.55 8.1 15.4 8.65 15.4 9.1C15.4 9.55 15.55 10.1 16 10.65C16.45 10.1 16.6 9.55 16.6 9.1C16.6 8.65 16.45 8.1 16 7.55Z" fill="#0B3D2E" fill-opacity="0.5"/>
+  <path d="M16 3.55L17.1 5.1H14.9L16 3.55Z" fill="#F0C14A"/>
+  <path fill="#F7F4EC" d="M10.05 14.85 12.45 12.95h2.3v10.5H12.45v-8.15l-1.4.95h-1z"/>
+  <rect x="16.9" y="12.95" width="7.1" height="2" rx="0.3" fill="#F7F4EC"/>
+  <rect x="16.9" y="12.95" width="2.05" height="5.6" rx="0.3" fill="#F7F4EC"/>
+  <path fill="#F7F4EC" fill-rule="evenodd" d="M20.65 17.15a3.5 3.5 0 1 1 0 7 3.5 3.5 0 1 1 0-7Zm0 1.8a1.7 1.7 0 1 0 0 3.4 1.7 1.7 0 1 0 0-3.4Z"/>
+</svg>

@@ -1,0 +1,111 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1787072316002,
+      "tag": "0000_init",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1787072654976,
+      "tag": "0001_prize_config_npr",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1787080000000,
+      "tag": "0002_historical_import",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1787090000000,
+      "tag": "0003_activity_points",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1787100000000,
+      "tag": "0004_challenges",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1787110000000,
+      "tag": "0005_awards_wall",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1787120000000,
+      "tag": "0006_custom_prizes",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1787130000000,
+      "tag": "0007_manager_accounts",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1787140000000,
+      "tag": "0008_entry_fee_paid",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1787150000000,
+      "tag": "0009_penalty_shootout",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1787160000000,
+      "tag": "0010_club_avatars",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1787170000000,
+      "tag": "0011_dressing_room",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1787180000000,
+      "tag": "0012_documentary",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1787190000000,
+      "tag": "0013_notifications",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1787200000000,
+      "tag": "0014_rls_policies",
+      "breakpoints": true
+    }
+  ]
+}

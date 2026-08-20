@@ -1,0 +1,1 @@
+ALTER TABLE "prize_config" ALTER COLUMN "currency" SET DEFAULT 'NPR';

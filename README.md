@@ -1,36 +1,161 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Batch 16
 
-## Getting Started
+Private Fantasy Premier League HQ for our friends’ league — standings, live scores, side bets (**Baaji**), Dressing Room chat, awards, and a bit of weekly theatre.
 
-First, run the development server:
+Built for managers who already know each other. Not a public product.
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+---
+
+## What you can do in the app
+
+| Area | What it is |
+|------|------------|
+| **League** | Table, pitch ranks, fixtures, fees, balances |
+| **Live** | Match-centre style scores while the gameweek is on |
+| **Baaji** | Side bets between managers |
+| **Rivalries** | Who owns who, historically |
+| **Penalties** | Quick shootout game |
+| **Awards** | Weekly shout-outs |
+| **Documentary** | Auto episodes after finished gameweeks |
+| **Dressing Room** | League chat + taunts |
+| **Past seasons** | Historical winners & prizes |
+| **Guide** | In-app FAQ / how-to for players |
+
+Players: open **Guide** in the app (`/guide`) after you sign in.  
+Developers: see **[CONTRIBUTING.md](./CONTRIBUTING.md)**.
+
+---
+
+## Screenshots
+
+Add PNGs under `docs/screenshots/` and link them here when you have a spare minute (League table, Live, Baaji, Dressing Room work well).
+
+```markdown
+![League table](docs/screenshots/league.png)
+![Dressing Room](docs/screenshots/dressing-room.png)
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Until then, run the app locally and click around — the UI is the best demo.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+<p align="center">
+  <img src="public/brand/batch16-logo.svg" alt="Batch 16 crest" width="96" />
+</p>
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+---
 
-## Learn More
+## Quick start
 
-To learn more about Next.js, take a look at the following resources:
+```bash
+npm install
+cp .env.example .env.local   # fill in real values — never commit this file
+npm run db:migrate
+npm run dev
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+Open [http://localhost:3000](http://localhost:3000).
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Full local setup, folder map, PR process: **[CONTRIBUTING.md](./CONTRIBUTING.md)**.
 
-## Deploy on Vercel
+---
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Tech stack
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- **Next.js 15** (App Router) + **TypeScript** + **React 19**  
+- **Tailwind CSS v4** + **shadcn/ui** + **Framer Motion**  
+- **Supabase** (Auth, Postgres, Realtime) + **Drizzle ORM**  
+- Official **FPL** API (server-side)  
+- **Vitest** for unit tests  
+
+---
+
+## Environment
+
+Copy [`.env.example`](./.env.example) → `.env.local`.
+
+| Variable | Required | Where it comes from |
+|----------|----------|---------------------|
+| `NEXT_PUBLIC_SUPABASE_URL` | Yes | Supabase → Settings → API |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Yes | Supabase → Settings → API |
+| `DATABASE_URL` | Yes | Supabase → Database (session pooler) |
+| `FPL_LEAGUE_ID` | Yes | Classic league ID on FPL |
+| `ADMIN_EMAILS` | For `/admin` | Your email(s), comma-separated |
+| `NEXT_PUBLIC_SITE_URL` | Production | Deployed site URL (auth redirects) |
+
+Never commit secrets. See **[SECURITY.md](./SECURITY.md)**.
+
+### Supabase Auth (local + prod)
+
+1. Add redirect URL: `http://localhost:3000/auth/callback` (and your production `/auth/callback`)  
+2. Set Site URL appropriately for each environment  
+3. Enable email confirmation if you use the register → confirm → login flow  
+4. Turn on **Realtime** for Dressing Room / notifications  
+
+---
+
+## Scripts
+
+| Command | Purpose |
+|---------|---------|
+| `npm run dev` | Dev server (Turbopack) |
+| `npm run build` / `npm start` | Production build & serve |
+| `npm run lint` | ESLint |
+| `npm run typecheck` | `tsc --noEmit` |
+| `npm test` | Vitest |
+| `npm run security:check` | Scan for tracked secrets |
+| `npm run db:migrate` | Apply Drizzle migrations |
+| `npm run db:studio` | Browse the database |
+
+---
+
+## How accounts work (short)
+
+1. Admin syncs managers from FPL → they appear **Unverified**  
+2. You register, confirm email, sign in  
+3. You **claim** your seat (`/auth/claim`) with name + FPL team name → **Verified**  
+4. Verified unlocks chat, Baaji, notifications, etc.  
+5. **Paid / Unpaid** is only the entry fee (admin flag) — separate from Verified  
+
+Gameweek winners are only auto-declared after FPL finishes and data-checks the week (or an admin confirms). Unplayed weeks don’t invent a winner.
+
+---
+
+## Admin
+
+Emails in `ADMIN_EMAILS` can open `/admin` to:
+
+- Sync / edit managers and entry fees  
+- Confirm weekly winners and recalculate balances  
+- Edit prize config, awards, wall moderation  
+- Import past seasons from Excel under `data/imports/`  
+
+---
+
+## Contributing
+
+We want league mates who know a bit of coding to feel safe opening PRs.
+
+→ **[CONTRIBUTING.md](./CONTRIBUTING.md)** — local setup, folders, branches, tests, PR etiquette  
+
+→ **[SECURITY.md](./SECURITY.md)** — secrets, auth hardening, RLS  
+
+Before every push:
+
+```bash
+npm run typecheck && npm test && npm run security:check
+```
+
+---
+
+## Production checklist
+
+- [ ] Env vars set on the host (`ADMIN_EMAILS`, `NEXT_PUBLIC_SITE_URL`, …)  
+- [ ] Migrations applied (including RLS in `drizzle/0014_rls_policies.sql` if not already)  
+- [ ] Supabase Auth redirects + Realtime configured  
+- [ ] `typecheck` / `test` / `security:check` / `build` pass  
+- [ ] Register → confirm → login → claim works once end-to-end  
+
+---
+
+## Licence / privacy
+
+Private league project. Keep the repo access limited to people in the league unless you explicitly decide otherwise. Don’t share `.env.local` or production database credentials in chat screenshots.

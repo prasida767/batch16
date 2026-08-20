@@ -1,0 +1,2 @@
+# Place historical .xlsx workbooks here for admin import.
+# Paths outside this folder are rejected by the server.
