@@ -1,6 +1,7 @@
 import "server-only";
 
 import { cache } from "react";
+import { unstable_cache } from "next/cache";
 import {
   fetchAllClassicLeagueStandings,
   fetchBootstrapStatic,
@@ -55,6 +56,16 @@ type LeagueSnapshot = {
   previousEventId: number | null;
 };
 
+type CachedLeagueSnapshot = {
+  leagueId: number;
+  standings: FplClassicLeagueStandings;
+  bootstrap: FplBootstrapStatic;
+  db: LeagueDbState;
+  historyPairs: Array<[number, FplManagerHistory]>;
+  currentEventId: number | null;
+  previousEventId: number | null;
+};
+
 function errorMessage(error: unknown): string {
   if (isFplApiError(error)) return error.message;
   if (error instanceof Error) return error.message;
@@ -75,6 +86,45 @@ async function mapSettled<T, R>(
   return map;
 }
 
+const getCachedLeagueSnapshotCore = (leagueId: number) =>
+  unstable_cache(
+    async (): Promise<
+      | { kind: "ok"; data: CachedLeagueSnapshot }
+      | { kind: "error"; message: string }
+    > => {
+      try {
+        const [standings, bootstrap, db] = await Promise.all([
+          fetchAllClassicLeagueStandings(leagueId),
+          fetchBootstrapStatic(),
+          getLeagueDbState(),
+        ]);
+
+        const entryIds = leagueRosterRows(standings).map((row) => row.entry);
+        const historyEntries = await mapSettled(entryIds, fetchManagerHistory);
+
+        return {
+          kind: "ok",
+          data: {
+            leagueId,
+            standings,
+            bootstrap,
+            db,
+            historyPairs: [...historyEntries.entries()],
+            currentEventId:
+              bootstrap.events.find((event) => event.is_current)?.id ?? null,
+            previousEventId:
+              bootstrap.events.find((event) => event.is_previous)?.id ?? null,
+          },
+        };
+      } catch (error) {
+        console.error("[league] Snapshot failed", error);
+        return { kind: "error", message: errorMessage(error) };
+      }
+    },
+    ["league-snapshot-v2", String(leagueId)],
+    { revalidate: 60, tags: ["league-snapshot", "fpl"] },
+  )();
+
 export const getLeagueSnapshot = cache(
   async (): Promise<
     | { kind: "ok"; data: LeagueSnapshot }
@@ -84,34 +134,21 @@ export const getLeagueSnapshot = cache(
     const leagueId = getLeagueId();
     if (!leagueId) return { kind: "no_league" };
 
-    try {
-      const [standings, bootstrap, db] = await Promise.all([
-        fetchAllClassicLeagueStandings(leagueId),
-        fetchBootstrapStatic(),
-        getLeagueDbState(),
-      ]);
+    const cached = await getCachedLeagueSnapshotCore(leagueId);
+    if (cached.kind !== "ok") return cached;
 
-      const entryIds = leagueRosterRows(standings).map((row) => row.entry);
-      const historyEntries = await mapSettled(entryIds, fetchManagerHistory);
-
-      return {
-        kind: "ok",
-        data: {
-          leagueId,
-          standings,
-          bootstrap,
-          db,
-          histories: historyEntries,
-          currentEventId:
-            bootstrap.events.find((event) => event.is_current)?.id ?? null,
-          previousEventId:
-            bootstrap.events.find((event) => event.is_previous)?.id ?? null,
-        },
-      };
-    } catch (error) {
-      console.error("[league] Snapshot failed", error);
-      return { kind: "error", message: errorMessage(error) };
-    }
+    return {
+      kind: "ok",
+      data: {
+        leagueId: cached.data.leagueId,
+        standings: cached.data.standings,
+        bootstrap: cached.data.bootstrap,
+        db: cached.data.db,
+        histories: new Map(cached.data.historyPairs),
+        currentEventId: cached.data.currentEventId,
+        previousEventId: cached.data.previousEventId,
+      },
+    };
   },
 );
 

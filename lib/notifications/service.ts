@@ -96,11 +96,23 @@ export async function createNotificationsForManagers(
     (id) => id !== input.actorManagerId,
   );
   if (unique.length === 0) return;
-  await Promise.all(
-    unique.map((recipientManagerId) =>
-      createNotification({ ...input, recipientManagerId }),
-    ),
-  );
+
+  try {
+    const db = getDb();
+    await db.insert(notifications).values(
+      unique.map((recipientManagerId) => ({
+        recipientManagerId,
+        actorManagerId: input.actorManagerId ?? null,
+        type: input.type,
+        title: input.title.slice(0, 160),
+        body: input.body?.slice(0, 400) ?? null,
+        href: input.href ?? null,
+        meta: input.meta ?? {},
+      })),
+    );
+  } catch (err) {
+    console.error("[notifications] bulk create failed", err);
+  }
 }
 
 export async function listNotificationsForManager(

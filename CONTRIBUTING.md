@@ -11,7 +11,7 @@ You don’t need to be a full-time engineer. Small fixes, copy tweaks, UI polish
 **Batch 16** tracks our classic Fantasy Premier League mini-league:
 
 - Standings, pitch ranks, live scores, and prize balances  
-- Side bets (**Baaji**), rivalries, penalty shootouts  
+- Side bets (**Baaji**), rivalries  
 - Dressing Room chat, awards, documentary episodes  
 - Auth so each manager can **claim** their FPL seat and become **Verified**
 

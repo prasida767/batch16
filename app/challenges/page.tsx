@@ -1,7 +1,19 @@
+import nextDynamic from "next/dynamic";
 import { PageHeader, SetupState } from "@/components/league/shared";
-import { ChallengesBoard } from "@/components/challenges/challenges-board";
 import { FadeIn } from "@/components/motion/page-transition";
 import { getChallengesPageData } from "@/app/challenges/actions";
+
+const ChallengesBoard = nextDynamic(
+  () =>
+    import("@/components/challenges/challenges-board").then(
+      (m) => m.ChallengesBoard,
+    ),
+  {
+    loading: () => (
+      <div className="h-72 animate-pulse rounded-2xl bg-muted/40" aria-hidden />
+    ),
+  },
+);
 
 export const dynamic = "force-dynamic";
 

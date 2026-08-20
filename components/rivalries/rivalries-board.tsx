@@ -1,11 +1,9 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useMemo, useState, type ReactNode } from "react";
 import { Flame, Heart, Skull, Swords } from "lucide-react";
-import {
-  RivalryCard,
-  RivalryHeatmap,
-} from "@/components/rivalries/heatmap";
+import { RivalryCard } from "@/components/rivalries/heatmap";
 import { NemesisTimelineChart } from "@/components/rivalries/nemesis-timeline";
 import { ManagerAvatar } from "@/components/league/shared";
 import { FadeIn } from "@/components/motion/page-transition";
@@ -21,6 +19,17 @@ import {
   nemesisTimeline,
   type RivalriesBoard,
 } from "@/lib/rivalries/compute";
+
+const RivalryHeatmap = dynamic(
+  () =>
+    import("@/components/rivalries/heatmap").then((m) => m.RivalryHeatmap),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="h-72 animate-pulse rounded-2xl bg-muted/40" aria-hidden />
+    ),
+  },
+);
 
 export function RivalriesBoardView({ board }: { board: RivalriesBoard }) {
   const [focusId, setFocusId] = useState(board.managers[0]?.entryId ?? 0);

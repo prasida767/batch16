@@ -28,6 +28,8 @@ CREATE INDEX IF NOT EXISTS "notifications_recipient_created_idx" ON "notificatio
 CREATE INDEX IF NOT EXISTS "notifications_recipient_unread_idx" ON "notifications" USING btree ("recipient_manager_id","read_at");
 --> statement-breakpoint
 -- Enable Supabase Realtime for live toast / badge updates (no-op if not Supabase).
+-- NOTE: Later removed in 0016 — notifications use HTTP polling on the free tier
+-- to avoid realtime.list_changes WAL load. Keep RLS policies below for safety.
 DO $$ BEGIN
   ALTER PUBLICATION supabase_realtime ADD TABLE notifications;
 EXCEPTION

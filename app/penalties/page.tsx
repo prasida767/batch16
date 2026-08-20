@@ -1,52 +1,35 @@
-import { PenaltiesLobby } from "@/components/penalties/penalties-lobby";
-import { PageHeader, SetupState } from "@/components/league/shared";
+import Link from "next/link";
+import { PageHeader } from "@/components/league/shared";
 import { FadeIn } from "@/components/motion/page-transition";
-import { getPenaltiesPageData } from "@/app/penalties/actions";
-import { getAuthUser } from "@/lib/auth/session";
+import { Button } from "@/components/ui/button";
 
-export const dynamic = "force-dynamic";
-
-export default async function PenaltiesPage() {
-  const [data, user] = await Promise.all([
-    getPenaltiesPageData(),
-    getAuthUser(),
-  ]);
-
-  if (data.kind === "no_db") {
-    return (
-      <div className="space-y-6">
-        <PageHeader
-          eyebrow="Mini-game"
-          title="Penalty Shootout"
-          description="Solo or challenge online managers — best of five."
-        />
-        <SetupState
-          title="Connect the database"
-          body="Set DATABASE_URL and run migrations before playing penalties."
-        />
-      </div>
-    );
-  }
-
+/**
+ * Penalties are archived (see `archive/penalties/`) until we move off the
+ * free-tier Supabase limits. This stub keeps old /penalties links safe.
+ */
+export default function PenaltiesPausedPage() {
   return (
     <div className="space-y-8">
       <FadeIn>
         <PageHeader
           eyebrow="Mini-game"
           title="Penalty Shootout"
-          description="Go online, challenge a mate, or take on the computer. Earn activity points for playing, challenging, and winning."
+          description="Temporarily paused while we keep the league fast on the free plan."
         />
       </FadeIn>
-      <PenaltiesLobby
-        actingManagerId={data.actingManagerId}
-        acting={data.acting}
-        managers={data.managers}
-        pending={data.pending}
-        active={data.active}
-        history={data.history}
-        leaderboard={data.leaderboard}
-        signedIn={Boolean(user)}
-      />
+      <div className="rounded-2xl border border-border/70 bg-muted/30 px-5 py-8 sm:px-8">
+        <p className="max-w-xl text-sm text-muted-foreground">
+          The shootout game (solo + challenges + live presence) is parked in{" "}
+          <code className="rounded bg-muted px-1.5 py-0.5 text-xs">
+            archive/penalties
+          </code>{" "}
+          and will come back when we upgrade hosting. Everything else — league,
+          Baaji, Dressing Room, documentary — stays live.
+        </p>
+        <Button render={<Link href="/league" />} className="mt-6">
+          Back to League
+        </Button>
+      </div>
     </div>
   );
 }

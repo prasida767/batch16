@@ -10,6 +10,8 @@ import {
   getPenaltiesBoard,
   getPenaltyHistory,
   getPenaltyMatch,
+  listActiveForManager,
+  listPendingForManager,
   parseDirection,
   respondToPenaltyChallenge,
   startSoloMatch,
@@ -21,24 +23,28 @@ function revalidatePenaltyPaths() {
   revalidatePath("/penalties");
 }
 
-export async function getPenaltiesPageData() {
+export async function loadPenaltiesBoardAction() {
   if (!isDatabaseConfigured()) {
     return { kind: "no_db" as const };
   }
-
-  const actingManagerId = await getActingManagerId();
-  const board = await getPenaltiesBoard(actingManagerId);
-  const acting =
-    actingManagerId != null
-      ? board.managers.find((m) => m.id === actingManagerId) ?? null
-      : null;
-
-  return {
-    kind: "ok" as const,
-    actingManagerId,
-    acting,
-    ...board,
-  };
+  try {
+    const actingManagerId = await getActingManagerId();
+    const board = await getPenaltiesBoard(actingManagerId);
+    return {
+      kind: "ok" as const,
+      actingManagerId,
+      managers: board.managers,
+      pending: board.pending,
+      active: board.active,
+      history: board.history,
+      leaderboard: board.leaderboard,
+    };
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Database unavailable.";
+    console.error("[penalties] board load failed", error);
+    return { kind: "error" as const, message };
+  }
 }
 
 export async function startSoloAction(): Promise<
@@ -220,8 +226,12 @@ export async function refreshInboxAction() {
   if (managerId == null || !isDatabaseConfigured()) {
     return { pending: [], active: [] };
   }
-  const board = await getPenaltiesBoard(managerId);
-  return { pending: board.pending, active: board.active };
+  // Intentionally light — do NOT call getPenaltiesBoard (history/leaderboard).
+  const [pending, active] = await Promise.all([
+    listPendingForManager(managerId),
+    listActiveForManager(managerId),
+  ]);
+  return { pending, active };
 }
 
 export async function refreshHistoryAction(mineOnly: boolean) {

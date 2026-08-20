@@ -2,13 +2,13 @@ export const FPL_BASE_URL = "https://fantasy.premierleague.com/api";
 
 /** Cache lifetimes in seconds. Tune per endpoint — live data stays short. */
 export const FPL_CACHE = {
-  bootstrap: 300,
-  league: 60,
-  entry: 120,
-  history: 120,
+  bootstrap: 600,
+  league: 90,
+  entry: 180,
+  history: 180,
   picks: 60,
   live: 30,
-  fixtures: 120,
+  fixtures: 180,
 } as const;
 
 export const FPL_CACHE_TAGS = {

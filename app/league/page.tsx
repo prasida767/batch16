@@ -7,7 +7,7 @@ import { LeagueHub } from "@/components/league/league-hub";
 import { getVerifiedManager } from "@/lib/auth/session";
 import { getActingManagerId } from "@/lib/challenges";
 import {
-  ensureDocumentaryEpisodes,
+  ensureDocumentaryEpisodesThrottled,
   getLatestDocumentaryEpisode,
 } from "@/lib/documentary";
 import { getDashboardData } from "@/lib/league";
@@ -16,9 +16,24 @@ import { isDatabaseConfigured } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 
+async function loadFeaturedEpisode() {
+  if (!isDatabaseConfigured()) return null;
+  try {
+    await ensureDocumentaryEpisodesThrottled();
+    const viewerId = await getActingManagerId();
+    return await getLatestDocumentaryEpisode(viewerId);
+  } catch {
+    return null;
+  }
+}
+
 export default async function LeaguePage() {
-  const result = await getDashboardData();
-  const me = await getVerifiedManager().catch(() => null);
+  const [result, me, fixtures, latestEpisode] = await Promise.all([
+    getDashboardData(),
+    getVerifiedManager().catch(() => null),
+    getUpcomingFixtures().catch(() => []),
+    loadFeaturedEpisode(),
+  ]);
 
   if (result.kind === "no_league") {
     return (
@@ -49,19 +64,6 @@ export default async function LeaguePage() {
   const lastWinnerHint = data.lastWinner
     ? `Last weekly · ${data.lastWinner.winnerNames.join(", ")} (${data.lastWinner.winnerPoints} pts)`
     : (data.meta.currentEventName ?? "Waiting for the season");
-
-  const fixtures = await getUpcomingFixtures().catch(() => []);
-
-  let latestEpisode = null;
-  if (isDatabaseConfigured()) {
-    try {
-      await ensureDocumentaryEpisodes();
-      const viewerId = await getActingManagerId();
-      latestEpisode = await getLatestDocumentaryEpisode(viewerId);
-    } catch {
-      latestEpisode = null;
-    }
-  }
 
   return (
     <LeagueHub

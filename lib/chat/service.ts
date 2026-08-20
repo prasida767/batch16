@@ -192,7 +192,10 @@ export async function listActiveChatMessages(options?: {
   viewerId?: number | null;
 }): Promise<{ messages: ChatMessageView[]; gameweek: number }> {
   const gameweek = await ensureChatGameweekRollover();
-  await purgeStaleActiveMessages(gameweek);
+  // Full loads run the stale-message safety net; incremental polls skip it.
+  if (options?.afterId == null) {
+    await purgeStaleActiveMessages(gameweek);
+  }
 
   const limit = Math.min(Math.max(options?.limit ?? 100, 1), 200);
   const afterId = options?.afterId;

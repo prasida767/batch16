@@ -86,37 +86,40 @@ async function loadLeagueDbState(): Promise<LeagueDbState> {
 
   try {
     const db = getDb();
-    const [configRow] = await db.select().from(prizeConfig).limit(1);
-    const managerRows = await db
-      .select({
-        id: managers.id,
-        fplEntryId: managers.fplEntryId,
-        name: managers.name,
-        displayName: managers.displayName,
-        avatarUrl: managers.avatarUrl,
-        supportedTeamId: managers.supportedTeamId,
-        supportedTeamCode: managers.supportedTeamCode,
-        avatarVariant: managers.avatarVariant,
-        currentBalance: balances.currentBalance,
-        entryFeePaid: balances.entryFeePaid,
-        activityPoints: managers.activityPoints,
-        accountUserId: managerAccounts.userId,
-      })
-      .from(managers)
-      .leftJoin(balances, eq(balances.managerId, managers.id))
-      .leftJoin(managerAccounts, eq(managerAccounts.managerId, managers.id));
+    const [configRows, managerRows, weeklyRows] = await Promise.all([
+      db.select().from(prizeConfig).limit(1),
+      db
+        .select({
+          id: managers.id,
+          fplEntryId: managers.fplEntryId,
+          name: managers.name,
+          displayName: managers.displayName,
+          avatarUrl: managers.avatarUrl,
+          supportedTeamId: managers.supportedTeamId,
+          supportedTeamCode: managers.supportedTeamCode,
+          avatarVariant: managers.avatarVariant,
+          currentBalance: balances.currentBalance,
+          entryFeePaid: balances.entryFeePaid,
+          activityPoints: managers.activityPoints,
+          accountUserId: managerAccounts.userId,
+        })
+        .from(managers)
+        .leftJoin(balances, eq(balances.managerId, managers.id))
+        .leftJoin(managerAccounts, eq(managerAccounts.managerId, managers.id)),
+      db
+        .select({
+          gameweek: weeklyResults.gameweek,
+          managerId: weeklyResults.managerId,
+          fplEntryId: managers.fplEntryId,
+          points: weeklyResults.points,
+          rank: weeklyResults.rank,
+          isWinner: weeklyResults.isWinner,
+        })
+        .from(weeklyResults)
+        .innerJoin(managers, eq(weeklyResults.managerId, managers.id)),
+    ]);
 
-    const weeklyRows = await db
-      .select({
-        gameweek: weeklyResults.gameweek,
-        managerId: weeklyResults.managerId,
-        fplEntryId: managers.fplEntryId,
-        points: weeklyResults.points,
-        rank: weeklyResults.rank,
-        isWinner: weeklyResults.isWinner,
-      })
-      .from(weeklyResults)
-      .innerJoin(managers, eq(weeklyResults.managerId, managers.id));
+    const configRow = configRows[0];
 
     const prizeValues: PrizeConfigFormValues = configRow
       ? {

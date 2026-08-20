@@ -1,7 +1,19 @@
-import { RivalriesBoardView } from "@/components/rivalries/rivalries-board";
+import nextDynamic from "next/dynamic";
 import { ErrorState, PageHeader, SetupState } from "@/components/league/shared";
 import { FadeIn } from "@/components/motion/page-transition";
 import { getRivalriesBoard } from "@/lib/rivalries";
+
+const RivalriesBoardView = nextDynamic(
+  () =>
+    import("@/components/rivalries/rivalries-board").then(
+      (m) => m.RivalriesBoardView,
+    ),
+  {
+    loading: () => (
+      <div className="h-96 animate-pulse rounded-2xl bg-muted/40" aria-hidden />
+    ),
+  },
+);
 
 export const dynamic = "force-dynamic";
 

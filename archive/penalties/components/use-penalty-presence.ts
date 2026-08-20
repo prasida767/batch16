@@ -8,13 +8,15 @@ import {
   PRESENCE_CHANNEL,
   type PresencePayload,
 } from "@/lib/penalties/types";
+import { usePageVisible } from "@/lib/hooks/use-page-visible";
 
 export function usePenaltyPresence(me: PresencePayload | null) {
+  const visible = usePageVisible();
   const [online, setOnline] = useState<PresencePayload[]>([]);
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
-    if (!me || !isSupabaseConfigured()) {
+    if (!me || !isSupabaseConfigured() || !visible) {
       setOnline([]);
       setReady(false);
       return;
@@ -69,7 +71,7 @@ export function usePenaltyPresence(me: PresencePayload | null) {
         void supabase.removeChannel(channel);
       }
     };
-  }, [me?.managerId, me?.displayName, me?.avatarUrl]);
+  }, [me?.managerId, me?.displayName, me?.avatarUrl, visible]);
 
   return { online, ready };
 }

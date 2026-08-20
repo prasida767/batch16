@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import Link from "next/link";
 import { headers } from "next/headers";
 import { DressingRoomLayout } from "@/components/chat/dressing-room-layout";
-import { GwWinnerCelebration } from "@/components/layout/gw-winner-celebration";
+import { CelebrationHost } from "@/components/layout/celebration-host";
 import { Navbar } from "@/components/layout/navbar";
 import { PublicHeader } from "@/components/layout/public-header";
 import { SiteFooter } from "@/components/layout/site-footer";
@@ -72,9 +72,7 @@ export async function SiteShell({ children }: { children: ReactNode }) {
             to unlock chat, Baaji, and notifications.
           </div>
         ) : null}
-        {celebration ? (
-          <GwWinnerCelebration celebration={celebration} />
-        ) : null}
+        {celebration ? <CelebrationHost celebration={celebration} /> : null}
         <div className="flex min-h-0 flex-1 flex-col">
           <DressingRoomLayout
             managerId={managerId}

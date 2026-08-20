@@ -79,7 +79,7 @@ export function ManagerAvatar({
   supportedTeamId,
   supportedTeamCode,
   avatarVariant = 0,
-  animated = true,
+  animated = false,
   className,
 }: {
   name: string;

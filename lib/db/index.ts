@@ -32,7 +32,11 @@ export function getDb(): Db {
       max: 1, // one connection per serverless isolate
       idle_timeout: 20,
       max_lifetime: 60 * 5,
-      connect_timeout: 10,
+      connect_timeout: 5,
+      // Fail stuck queries instead of hanging SSR forever (free-tier OOM / swap).
+      connection: {
+        options: "-c statement_timeout=5000",
+      },
     });
   }
   if (!globalForDb.db) {

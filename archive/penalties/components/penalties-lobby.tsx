@@ -12,6 +12,7 @@ import {
 import {
   cancelChallengeAction,
   challengeManagerAction,
+  loadPenaltiesBoardAction,
   multiplayerChoiceAction,
   refreshHistoryAction,
   refreshInboxAction,
@@ -20,14 +21,11 @@ import {
   soloKickAction,
   startSoloAction,
 } from "@/app/penalties/actions";
+import dynamic from "next/dynamic";
 import { AuthIdentityCard } from "@/components/auth/auth-identity-card";
 import { ManagerAvatar } from "@/components/league/shared";
 import { FadeIn, Stagger, StaggerItem } from "@/components/motion/page-transition";
 import { ConfettiBurst } from "@/components/motion/confetti";
-import {
-  DirectionButtons,
-  ShootoutPitch,
-} from "@/components/penalties/shootout-pitch";
 import { usePenaltyPresence } from "@/components/penalties/use-penalty-presence";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -38,6 +36,27 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+
+const ShootoutPitch = dynamic(
+  () =>
+    import("@/components/penalties/shootout-pitch").then((m) => m.ShootoutPitch),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex h-56 items-center justify-center rounded-2xl bg-emerald-950/40 text-sm text-emerald-100/70">
+        Loading pitch…
+      </div>
+    ),
+  },
+);
+
+const DirectionButtons = dynamic(
+  () =>
+    import("@/components/penalties/shootout-pitch").then(
+      (m) => m.DirectionButtons,
+    ),
+  { ssr: false },
+);
 import { cn } from "@/lib/utils";
 import type {
   PenaltyDirection,
@@ -110,25 +129,16 @@ function OnlineDot({ online }: { online: boolean }) {
 export function PenaltiesLobby({
   actingManagerId,
   acting,
-  managers,
-  pending: initialPending,
-  active: initialActive,
-  history: initialHistory,
-  leaderboard,
   signedIn = false,
 }: {
   actingManagerId: number | null;
   acting: ManagerLite | null;
-  managers: ManagerLite[];
-  pending: PenaltyMatchView[];
-  active: PenaltyMatchView[];
-  history: PenaltyHistoryRow[];
-  leaderboard: PenaltyLeaderboardRow[];
   signedIn?: boolean;
 }) {
+  const [presenceOn, setPresenceOn] = useState(false);
   const mePresence = useMemo(
     () =>
-      acting
+      presenceOn && acting
         ? {
             managerId: acting.id,
             displayName: acting.displayName,
@@ -136,7 +146,7 @@ export function PenaltiesLobby({
             onlineAt: Date.now(),
           }
         : null,
-    [acting],
+    [acting, presenceOn],
   );
   const { online } = usePenaltyPresence(mePresence);
   const onlineIds = useMemo(
@@ -144,16 +154,18 @@ export function PenaltiesLobby({
     [online],
   );
 
-  const [pending, setPending] = useState(initialPending);
-  const [active, setActive] = useState(initialActive);
-  const [history, setHistory] = useState(initialHistory);
+  const [bootError, setBootError] = useState<string | null>(null);
+  const [booting, setBooting] = useState(true);
+  const [managers, setManagers] = useState<ManagerLite[]>([]);
+  const [pending, setPending] = useState<PenaltyMatchView[]>([]);
+  const [active, setActive] = useState<PenaltyMatchView[]>([]);
+  const [history, setHistory] = useState<PenaltyHistoryRow[]>([]);
+  const [leaderboard, setLeaderboard] = useState<PenaltyLeaderboardRow[]>([]);
   const [mineOnly, setMineOnly] = useState(false);
   const [flash, setFlash] = useState<string | null>(null);
   const [pendingAction, startTransition] = useTransition();
 
-  const [match, setMatch] = useState<PenaltyMatchView | null>(
-    initialActive[0] ?? null,
-  );
+  const [match, setMatch] = useState<PenaltyMatchView | null>(null);
   const [animPhase, setAnimPhase] = useState<AnimPhase>("idle");
   const [animDive, setAnimDive] = useState<PenaltyDirection | null>(null);
   const [animShot, setAnimShot] = useState<PenaltyDirection | null>(null);
@@ -161,17 +173,40 @@ export function PenaltiesLobby({
   const [busy, setBusy] = useState(false);
   const [showConfetti, setShowConfetti] = useState(false);
   const [confettiKey, setConfettiKey] = useState<string | null>(null);
-  const lastSeenRounds = useRef(initialActive[0]?.rounds.length ?? 0);
+  const lastSeenRounds = useRef(0);
   const animatingRef = useRef(false);
 
-  // If server sends a new active match (e.g. after refresh), adopt it.
   useEffect(() => {
-    if (initialActive[0] && (!match || match.status === PENALTY_STATUS.COMPLETED)) {
-      setMatch(initialActive[0]);
-      lastSeenRounds.current = initialActive[0].rounds.length;
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- only sync when server active list changes
-  }, [initialActive]);
+    let cancelled = false;
+    void (async () => {
+      setBooting(true);
+      const data = await loadPenaltiesBoardAction();
+      if (cancelled) return;
+      if (data.kind !== "ok") {
+        setBootError(
+          data.kind === "error"
+            ? data.message
+            : "Database is not configured.",
+        );
+        setBooting(false);
+        return;
+      }
+      setManagers(data.managers);
+      setPending(data.pending);
+      setActive(data.active);
+      setHistory(data.history);
+      setLeaderboard(data.leaderboard);
+      if (data.active[0]) {
+        setMatch(data.active[0]);
+        lastSeenRounds.current = data.active[0].rounds.length;
+      }
+      setBootError(null);
+      setBooting(false);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const playReveal = useCallback(async (round: PenaltyRoundRecord) => {
     if (animatingRef.current) return;
@@ -229,18 +264,55 @@ export function PenaltiesLobby({
     })();
   }, [match, playReveal, actingManagerId]);
 
+  // Poll lightly only while there is something to watch (pending/active match).
   useEffect(() => {
     if (!actingManagerId) return;
-    const id = window.setInterval(refreshInbox, 3500);
+    const needsPoll = pending.length > 0 || active.length > 0 || match != null;
+    if (!needsPoll) return;
+
+    const id = window.setInterval(() => {
+      if (document.visibilityState !== "visible") return;
+      refreshInbox();
+    }, 12_000);
     return () => window.clearInterval(id);
-  }, [actingManagerId, refreshInbox]);
+  }, [actingManagerId, pending.length, active.length, match, refreshInbox]);
 
   useEffect(() => {
+    if (booting) return;
     startTransition(async () => {
       const rows = await refreshHistoryAction(mineOnly);
       setHistory(rows);
     });
-  }, [mineOnly]);
+  }, [mineOnly, booting]);
+
+  if (booting) {
+    return (
+      <div className="h-80 animate-pulse rounded-2xl bg-muted/40" aria-busy />
+    );
+  }
+
+  if (bootError) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>Couldn’t load Penalties</CardTitle>
+          <CardDescription>
+            {bootError}. Wait a moment and refresh — other pages should stay
+            usable now.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => window.location.reload()}
+          >
+            Retry
+          </Button>
+        </CardContent>
+      </Card>
+    );
+  }
 
   function run(
     action: () => Promise<{ ok: boolean; message: string }>,
@@ -386,22 +458,41 @@ export function PenaltiesLobby({
         </div>
       </FadeIn>
 
-      {/* Online Now */}
+      {/* Online Now — opt-in (Realtime Presence is expensive on free tier) */}
       <FadeIn delay={0.04}>
         <Card>
           <CardHeader className="pb-3">
-            <CardTitle className="flex items-center gap-2 text-base">
-              <Users className="size-4 text-primary" />
-              Online Now
-            </CardTitle>
-            <CardDescription>
-              Live presence via Supabase — challenge anyone who’s here.
-            </CardDescription>
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <Users className="size-4 text-primary" />
+                  Online Now
+                </CardTitle>
+                <CardDescription>
+                  Optional live presence — leave off unless you need to see who’s
+                  here.
+                </CardDescription>
+              </div>
+              <Button
+                type="button"
+                size="sm"
+                variant={presenceOn ? "default" : "outline"}
+                disabled={!acting}
+                onClick={() => setPresenceOn((v) => !v)}
+              >
+                {presenceOn ? "Go offline" : "Go online"}
+              </Button>
+            </div>
           </CardHeader>
           <CardContent>
-            {othersOnline.length === 0 ? (
+            {!presenceOn ? (
               <p className="text-sm text-muted-foreground">
-                You’re the only one here. Start a solo shootout or wait for
+                You’re offline. Solo and challenges still work without live
+                presence.
+              </p>
+            ) : othersOnline.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                You’re the only one online. Start a solo shootout or wait for
                 mates.
               </p>
             ) : (

@@ -164,28 +164,29 @@ async function loadSeasonDetail(
 ): Promise<PastSeasonDetail> {
   const db = getDb();
 
-  const weeklyRows = await db
-    .select({
-      gameweek: weeklyWinners.gameweek,
-      points: weeklyWinners.points,
-      managerId: weeklyWinners.managerId,
-      managerName: managers.displayName,
-    })
-    .from(weeklyWinners)
-    .innerJoin(managers, eq(weeklyWinners.managerId, managers.id))
-    .where(eq(weeklyWinners.seasonId, seasonId))
-    .orderBy(asc(weeklyWinners.gameweek));
-
-  const prizeRows = await db
-    .select({
-      prizeType: seasonPrizes.prizeType,
-      amount: seasonPrizes.amount,
-      managerId: seasonPrizes.managerId,
-      managerName: managers.displayName,
-    })
-    .from(seasonPrizes)
-    .innerJoin(managers, eq(seasonPrizes.managerId, managers.id))
-    .where(eq(seasonPrizes.seasonId, seasonId));
+  const [weeklyRows, prizeRows] = await Promise.all([
+    db
+      .select({
+        gameweek: weeklyWinners.gameweek,
+        points: weeklyWinners.points,
+        managerId: weeklyWinners.managerId,
+        managerName: managers.displayName,
+      })
+      .from(weeklyWinners)
+      .innerJoin(managers, eq(weeklyWinners.managerId, managers.id))
+      .where(eq(weeklyWinners.seasonId, seasonId))
+      .orderBy(asc(weeklyWinners.gameweek)),
+    db
+      .select({
+        prizeType: seasonPrizes.prizeType,
+        amount: seasonPrizes.amount,
+        managerId: seasonPrizes.managerId,
+        managerName: managers.displayName,
+      })
+      .from(seasonPrizes)
+      .innerJoin(managers, eq(seasonPrizes.managerId, managers.id))
+      .where(eq(seasonPrizes.seasonId, seasonId)),
+  ]);
 
   prizeRows.sort((a, b) => prizeSortKey(a.prizeType) - prizeSortKey(b.prizeType));
 

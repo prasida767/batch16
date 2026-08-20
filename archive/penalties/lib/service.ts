@@ -1,7 +1,7 @@
 import "server-only";
 
 import { alias } from "drizzle-orm/pg-core";
-import { and, desc, eq, inArray, or, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, or, sql } from "drizzle-orm";
 import { getDb, managers, penaltyMatches } from "@/lib/db";
 import type { PenaltyDirection, PenaltyRoundRecord } from "@/lib/db/schema";
 import { awardActivityPoints } from "@/lib/activity";
@@ -172,7 +172,7 @@ export async function listPenaltyManagers() {
       fplEntryId: managers.fplEntryId,
     })
     .from(managers)
-    .where(sql`${managers.fplEntryId} is not null`)
+    .where(isNotNull(managers.fplEntryId))
     .orderBy(managers.displayName);
 }
 
@@ -814,7 +814,9 @@ export async function getPenaltyLeaderboard(): Promise<PenaltyLeaderboardRow[]> 
       mode: penaltyMatches.mode,
     })
     .from(penaltyMatches)
-    .where(eq(penaltyMatches.status, PENALTY_STATUS.COMPLETED));
+    .where(eq(penaltyMatches.status, PENALTY_STATUS.COMPLETED))
+    .orderBy(desc(penaltyMatches.completedAt))
+    .limit(200);
 
   const stats = new Map<
     number,
@@ -878,14 +880,17 @@ export async function getPenaltyLeaderboard(): Promise<PenaltyLeaderboardRow[]> 
 }
 
 export async function getPenaltiesBoard(managerId: number | null) {
-  const [managersList, pending, active, history, leaderboard] =
-    await Promise.all([
-      listPenaltyManagers(),
-      managerId != null ? listPendingForManager(managerId) : Promise.resolve([]),
-      managerId != null ? listActiveForManager(managerId) : Promise.resolve([]),
-      getPenaltyHistory({ managerId, mineOnly: false }),
-      getPenaltyLeaderboard(),
-    ]);
+  // Critical path first (lobby can render). History + leaderboard are heavier.
+  const [managersList, pending, active] = await Promise.all([
+    listPenaltyManagers(),
+    managerId != null ? listPendingForManager(managerId) : Promise.resolve([]),
+    managerId != null ? listActiveForManager(managerId) : Promise.resolve([]),
+  ]);
+
+  const [history, leaderboard] = await Promise.all([
+    getPenaltyHistory({ managerId, mineOnly: false }).catch(() => []),
+    getPenaltyLeaderboard().catch(() => []),
+  ]);
 
   return {
     managers: managersList,

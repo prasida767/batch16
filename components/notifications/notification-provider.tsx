@@ -12,8 +12,6 @@ import {
 } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { X } from "lucide-react";
-import { createClient } from "@/lib/supabase/client";
-import { isSupabaseConfigured } from "@/lib/supabase/config";
 import { formatTimeAgo } from "@/lib/notifications/time-ago";
 import type { NotificationView } from "@/lib/notifications/types";
 import { cn } from "@/lib/utils";
@@ -29,6 +27,7 @@ type NotificationsContextValue = {
   markRead: (id: number) => Promise<void>;
   markAllRead: () => Promise<void>;
   pushLocal: (n: NotificationView) => void;
+  setPanelOpen: (open: boolean) => void;
 };
 
 const NotificationsContext = createContext<NotificationsContextValue | null>(
@@ -64,8 +63,10 @@ export function NotificationProvider({
   const [unreadCount, setUnreadCount] = useState(0);
   const [loading, setLoading] = useState(Boolean(managerId));
   const [toasts, setToasts] = useState<ToastItem[]>([]);
+  const [panelOpen, setPanelOpen] = useState(false);
   const seenIds = useRef<Set<number>>(new Set());
   const ready = useRef(false);
+  const failStreak = useRef(0);
 
   const dismissToast = useCallback((toastId: string) => {
     setToasts((prev) => prev.filter((t) => t.toastId !== toastId));
@@ -112,6 +113,8 @@ export function NotificationProvider({
       setLoading(false);
       return;
     }
+    // Back off after repeated failures so error states don't hammer the API.
+    if (failStreak.current >= 3) return;
     try {
       const res = await fetch("/api/notifications?limit=40", {
         cache: "no-store",
@@ -123,12 +126,18 @@ export function NotificationProvider({
             unreadCount: number;
           }
         | { kind: "error"; message: string };
-      if (data.kind !== "ok") return;
+      if (!res.ok || data.kind !== "ok") {
+        failStreak.current += 1;
+        return;
+      }
 
+      failStreak.current = 0;
       for (const n of data.items) seenIds.current.add(n.id);
       setItems(data.items);
       setUnreadCount(data.unreadCount);
       ready.current = true;
+    } catch {
+      failStreak.current += 1;
     } finally {
       setLoading(false);
     }
@@ -175,80 +184,28 @@ export function NotificationProvider({
   useEffect(() => {
     ready.current = false;
     seenIds.current = new Set();
+    failStreak.current = 0;
     void refresh();
   }, [refresh]);
 
-  // Supabase Realtime (postgres_changes) + light poll fallback
+  // Refresh as soon as the bell opens (poll-only — no postgres_changes / WAL).
+  useEffect(() => {
+    if (!managerId || !panelOpen) return;
+    failStreak.current = 0;
+    void refresh();
+  }, [managerId, panelOpen, refresh]);
+
+  // Poll for badge updates; pause when the tab is hidden. Faster while open.
   useEffect(() => {
     if (!managerId) return;
 
-    let channel: ReturnType<ReturnType<typeof createClient>["channel"]> | null =
-      null;
-
-    if (isSupabaseConfigured()) {
-      try {
-        const supabase = createClient();
-        channel = supabase
-          .channel(`notifications-mgr-${managerId}`)
-          .on(
-            "postgres_changes",
-            {
-              event: "INSERT",
-              schema: "public",
-              table: "notifications",
-              filter: `recipient_manager_id=eq.${managerId}`,
-            },
-            (payload) => {
-              const row = payload.new as {
-                id: number;
-                recipient_manager_id: number;
-                actor_manager_id: number | null;
-                type: string;
-                title: string;
-                body: string | null;
-                href: string | null;
-                meta: Record<string, unknown> | null;
-                read_at: string | null;
-                created_at: string;
-              };
-              const view: NotificationView = {
-                id: row.id,
-                recipientManagerId: row.recipient_manager_id,
-                actorManagerId: row.actor_manager_id,
-                actorName: null,
-                type: row.type,
-                title: row.title,
-                body: row.body,
-                href: row.href,
-                meta: row.meta ?? {},
-                readAt: row.read_at,
-                createdAt: row.created_at,
-              };
-              ingest([view], { toastNew: true });
-              setUnreadCount((c) => c + 1);
-            },
-          )
-          .subscribe();
-      } catch {
-        // Fall through to polling only
-      }
-    }
-
     const pollTimer = window.setInterval(() => {
+      if (document.visibilityState !== "visible") return;
       void refresh();
-    }, 45_000);
+    }, panelOpen ? 15_000 : 90_000);
 
-    return () => {
-      window.clearInterval(pollTimer);
-      if (channel && isSupabaseConfigured()) {
-        try {
-          createClient().removeChannel(channel);
-        } catch {
-          /* ignore */
-        }
-      }
-    };
-  }, [managerId, ingest, refresh]);
+    return () => window.clearInterval(pollTimer);
+  }, [managerId, panelOpen, refresh]);
 
   const value = useMemo(
     () => ({
@@ -260,6 +217,7 @@ export function NotificationProvider({
       markRead,
       markAllRead,
       pushLocal,
+      setPanelOpen,
     }),
     [
       managerId,
