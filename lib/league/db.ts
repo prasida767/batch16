@@ -74,6 +74,26 @@ export async function getLeagueDbStateFresh(): Promise<LeagueDbState> {
   return loadLeagueDbState();
 }
 
+const LEAGUE_DB_TIMEOUT_MS = 8_000;
+
+function withTimeout<T>(promise: Promise<T>, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error(`[league] ${label} timed out after ${LEAGUE_DB_TIMEOUT_MS}ms`));
+    }, LEAGUE_DB_TIMEOUT_MS);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
+}
+
 async function loadLeagueDbState(): Promise<LeagueDbState> {
   const empty: LeagueDbState = {
     configured: false,
@@ -86,8 +106,13 @@ async function loadLeagueDbState(): Promise<LeagueDbState> {
 
   try {
     const db = getDb();
-    const [configRows, managerRows, weeklyRows] = await Promise.all([
+    // Sequential on purpose: max:1 + transaction pooler cannot safely pipeline.
+    // (Parallel Promise.all was hanging queries like prize_config for minutes.)
+    const configRows = await withTimeout(
       db.select().from(prizeConfig).limit(1),
+      "prize_config",
+    );
+    const managerRows = await withTimeout(
       db
         .select({
           id: managers.id,
@@ -106,6 +131,9 @@ async function loadLeagueDbState(): Promise<LeagueDbState> {
         .from(managers)
         .leftJoin(balances, eq(balances.managerId, managers.id))
         .leftJoin(managerAccounts, eq(managerAccounts.managerId, managers.id)),
+      "managers",
+    );
+    const weeklyRows = await withTimeout(
       db
         .select({
           gameweek: weeklyResults.gameweek,
@@ -117,7 +145,8 @@ async function loadLeagueDbState(): Promise<LeagueDbState> {
         })
         .from(weeklyResults)
         .innerJoin(managers, eq(weeklyResults.managerId, managers.id)),
-    ]);
+      "weekly_results",
+    );
 
     const configRow = configRows[0];
 
