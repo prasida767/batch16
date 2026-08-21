@@ -1,7 +1,5 @@
 import type { Metadata, Viewport } from "next";
-import { Suspense } from "react";
 import { Geist, Geist_Mono, Syne } from "next/font/google";
-import { PageSkeleton } from "@/components/league/shared";
 import { SiteShell } from "@/components/layout/site-shell";
 import { ThemeProvider } from "@/components/providers/theme-provider";
 import "./globals.css";
@@ -67,9 +65,7 @@ export default function RootLayout({
           enableSystem
           disableTransitionOnChange
         >
-          <Suspense fallback={<PageSkeleton variant="dashboard" />}>
-            <SiteShell>{children}</SiteShell>
-          </Suspense>
+          <SiteShell>{children}</SiteShell>
         </ThemeProvider>
       </body>
     </html>

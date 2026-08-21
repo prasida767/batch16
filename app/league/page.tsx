@@ -6,7 +6,10 @@ import {
 import { LeagueHub } from "@/components/league/league-hub";
 import { getVerifiedManager } from "@/lib/auth/session";
 import { getActingManagerId } from "@/lib/challenges";
-import { getLatestDocumentaryEpisode } from "@/lib/documentary";
+import {
+  ensureDocumentaryEpisodes,
+  getLatestDocumentaryEpisode,
+} from "@/lib/documentary";
 import { getDashboardData } from "@/lib/league";
 import { getUpcomingFixtures } from "@/lib/fpl";
 import { isDatabaseConfigured } from "@/lib/db";
@@ -52,6 +55,7 @@ export default async function LeaguePage() {
   let latestEpisode = null;
   if (isDatabaseConfigured()) {
     try {
+      await ensureDocumentaryEpisodes();
       const viewerId = await getActingManagerId();
       latestEpisode = await getLatestDocumentaryEpisode(viewerId);
     } catch {

@@ -23,7 +23,6 @@ export async function fplFetch<T>(
         Accept: "application/json",
         "User-Agent": "fpl-league/0.1 (private league tracker)",
       },
-      signal: AbortSignal.timeout(12_000),
       next: {
         revalidate: options.revalidate ?? 60,
         tags,
