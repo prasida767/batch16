@@ -30,10 +30,8 @@ export default async function PastSeasonsPage({
   const { season: seasonParam, view: viewParam } = await searchParams;
   const view = viewParam === "stats" ? "stats" : "archive";
 
-  const [result, statsResult] = await Promise.all([
-    getPastSeasonsData(seasonParam),
-    getPastSeasonsStats(),
-  ]);
+  const result = await getPastSeasonsData(seasonParam);
+  const statsResult = await getPastSeasonsStats();
 
   if (result.kind === "no_db") {
     return (

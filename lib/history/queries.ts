@@ -126,22 +126,20 @@ async function loadSeasonSummaries(): Promise<PastSeasonSummary[]> {
 
   if (seasonRows.length === 0) return [];
 
-  const [weeklyCounts, prizeCounts] = await Promise.all([
-    db
+  const weeklyCounts = await db
       .select({
         seasonId: weeklyWinners.seasonId,
         value: count(),
       })
       .from(weeklyWinners)
-      .groupBy(weeklyWinners.seasonId),
-    db
+      .groupBy(weeklyWinners.seasonId);
+  const prizeCounts = await db
       .select({
         seasonId: seasonPrizes.seasonId,
         value: count(),
       })
       .from(seasonPrizes)
-      .groupBy(seasonPrizes.seasonId),
-  ]);
+      .groupBy(seasonPrizes.seasonId);
 
   const weeklyMap = new Map(
     weeklyCounts.map((row) => [row.seasonId, row.value]),
@@ -277,16 +275,15 @@ export const getPastSeasonsStats = cache(
 
       if (seasonRows.length === 0) return { kind: "empty" };
 
-      const [weeklyRows, prizeRows] = await Promise.all([
-        db
+      const weeklyRows = await db
           .select({
             seasonId: weeklyWinners.seasonId,
             managerId: weeklyWinners.managerId,
             managerName: managers.displayName,
           })
           .from(weeklyWinners)
-          .innerJoin(managers, eq(weeklyWinners.managerId, managers.id)),
-        db
+          .innerJoin(managers, eq(weeklyWinners.managerId, managers.id));
+      const prizeRows = await db
           .select({
             seasonId: seasonPrizes.seasonId,
             prizeType: seasonPrizes.prizeType,
@@ -294,8 +291,7 @@ export const getPastSeasonsStats = cache(
             managerName: managers.displayName,
           })
           .from(seasonPrizes)
-          .innerJoin(managers, eq(seasonPrizes.managerId, managers.id)),
-      ]);
+          .innerJoin(managers, eq(seasonPrizes.managerId, managers.id));
 
       if (weeklyRows.length === 0 && prizeRows.length === 0) {
         return { kind: "empty" };

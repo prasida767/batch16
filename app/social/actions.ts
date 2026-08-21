@@ -165,11 +165,9 @@ export async function getAdminAwardsData(gameweek?: number) {
 
 export async function getWallPageData() {
   if (!isDatabaseConfigured()) return { kind: "no_db" as const };
-  const [actingManagerId, managers, posts] = await Promise.all([
-    getActingManagerId(),
-    listChallengeManagers(),
-    listWallFeed(30),
-  ]);
+  const actingManagerId = await getActingManagerId();
+  const managers = await listChallengeManagers();
+  const posts = await listWallFeed(30);
   const acting =
     actingManagerId != null
       ? managers.find((m) => m.id === actingManagerId) ?? null
@@ -257,9 +255,7 @@ export async function getDashboardSocialExtras() {
       wall: [] as Awaited<ReturnType<typeof listRecentWallPosts>>,
     };
   }
-  const [awards, wall] = await Promise.all([
-    getLatestAwardsPreview(4).catch(() => null),
-    listRecentWallPosts(5).catch(() => []),
-  ]);
+  const awards = await getLatestAwardsPreview(4).catch(() => null);
+  const wall = await listRecentWallPosts(5).catch(() => []);
   return { awards, wall };
 }

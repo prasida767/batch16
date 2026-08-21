@@ -30,9 +30,11 @@ export function getDb(): Db {
     globalForDb.sql = postgres(connectionString, {
       prepare: false, // required for PgBouncer transaction mode
       max: 1, // one connection per serverless isolate
+      fetch_types: false,
       idle_timeout: 20,
       max_lifetime: 60 * 5,
       connect_timeout: 10,
+      ssl: "require",
     });
   }
   if (!globalForDb.db) {
