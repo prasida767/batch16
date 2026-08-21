@@ -15,7 +15,7 @@ import { isDatabaseConfigured, resetDbClient } from "@/lib/db";
 import { AUTH_MANAGER_CACHE_TAG } from "@/lib/auth/shell";
 
 const AUTH_TIMEOUT_MS = 12_000;
-const VERIFY_TIMEOUT_MS = 4_000;
+const VERIFY_TIMEOUT_MS = 8_000;
 
 function revalidateAuthPaths() {
   revalidateTag(AUTH_MANAGER_CACHE_TAG);
@@ -221,12 +221,23 @@ export async function claimManagerAction(
   const avatarVariant = Number(formData.get("avatarVariant"));
   const next = safeNextPath(formData.get("next"));
 
-  const result = await claimManagerForCurrentUser({
-    fullName,
-    teamName,
-    supportedTeamId,
-    avatarVariant: Number.isInteger(avatarVariant) ? avatarVariant : undefined,
-  });
+  let result: Awaited<ReturnType<typeof claimManagerForCurrentUser>>;
+  try {
+    result = await claimManagerForCurrentUser({
+      fullName,
+      teamName,
+      supportedTeamId,
+      avatarVariant: Number.isInteger(avatarVariant) ? avatarVariant : undefined,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "";
+    return {
+      ok: false,
+      message: message.includes("timed out")
+        ? "The database took too long. Wait a few seconds and try again."
+        : "Couldn't reach the database. Try again in a moment.",
+    };
+  }
   if (!result.ok) {
     return { ok: false, message: result.message };
   }

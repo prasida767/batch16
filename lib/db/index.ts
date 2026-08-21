@@ -57,6 +57,12 @@ export function getDb(): Db {
   }
 
   if (!globalForDb.sql) {
+    try {
+      const host = new URL(connectionString).hostname;
+      console.info(`[db] connecting to ${host}`);
+    } catch {
+      console.info("[db] connecting (url parse failed)");
+    }
     globalForDb.sql = createSql(connectionString);
   }
   if (!globalForDb.db) {

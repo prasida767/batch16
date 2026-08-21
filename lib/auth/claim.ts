@@ -155,16 +155,17 @@ export async function claimManagerForCurrentUser(args: {
 
   const db = getDb();
   const [existing] = await db
-    .select({ managerId: managerAccounts.managerId })
+    .select({
+      managerId: managerAccounts.managerId,
+      displayName: managers.displayName,
+    })
     .from(managerAccounts)
+    .innerJoin(managers, eq(managers.id, managerAccounts.managerId))
     .where(eq(managerAccounts.userId, user.id))
     .limit(1);
 
   if (existing) {
-    return {
-      ok: false,
-      message: "Your account is already linked to a manager.",
-    };
+    return { ok: true, displayName: existing.displayName };
   }
 
   const found = await findManagerForClaim(args);

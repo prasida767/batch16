@@ -71,7 +71,7 @@ export const getVerifiedManager = cache(
     try {
       return await withTimeout(
         lookupVerifiedManagerForUser(user.id),
-        6_000,
+        8_000,
         "verify-manager",
       );
     } catch {

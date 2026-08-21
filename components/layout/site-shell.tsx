@@ -13,9 +13,13 @@ import { getShellAuth } from "@/lib/auth/shell";
 import { getActiveGwWinnerCelebration } from "@/lib/league/celebration";
 
 async function CelebrationSlot() {
-  const celebration = await getActiveGwWinnerCelebration();
-  if (!celebration) return null;
-  return <CelebrationHost celebration={celebration} />;
+  try {
+    const celebration = await getActiveGwWinnerCelebration();
+    if (!celebration) return null;
+    return <CelebrationHost celebration={celebration} />;
+  } catch {
+    return null;
+  }
 }
 
 async function currentPathname() {
@@ -28,7 +32,8 @@ export async function SiteShell({ children }: { children: ReactNode }) {
   const authLabel =
     auth.manager?.displayName ?? (auth.signedIn ? auth.email : null);
   const managerId = auth.manager?.managerId ?? null;
-  const needsClaim = auth.signedIn && !auth.verified;
+  const needsClaim =
+    auth.signedIn && !auth.verified && !auth.managerLookupFailed;
 
   const path = await currentPathname();
   const cinematic =
