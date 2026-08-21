@@ -1,10 +1,8 @@
 #!/usr/bin/env node
 /**
  * Copy public schema data from SOURCE_DATABASE_URL → DATABASE_URL.
- * 1. Create a Railway (or other) Postgres and set DATABASE_URL to it.
- * 2. Keep the old Supabase URI in SOURCE_DATABASE_URL.
- * 3. npm run db:push   (create tables on the new DB)
- * 4. npm run db:copy-from-source
+ * Loads all rows first, then truncates destination once, then inserts
+ * (avoids TRUNCATE CASCADE wiping tables already copied).
  */
 const postgres = require("postgres");
 require("dotenv").config({ path: ".env.local" });
@@ -33,6 +31,10 @@ function client(url) {
   });
 }
 
+function quoteIdent(name) {
+  return `"${String(name).replace(/"/g, '""')}"`;
+}
+
 async function listTables(sql) {
   const rows = await sql`
     select table_name
@@ -59,21 +61,46 @@ async function main() {
       );
     }
     if (tables.length === 0) {
-      throw new Error("No overlapping public tables. Run npm run db:push on the new database first.");
+      throw new Error(
+        "No overlapping public tables. Run npm run db:push on the new database first.",
+      );
+    }
+
+    const dumps = [];
+    for (const table of tables) {
+      const rows = await source.unsafe(`select * from ${quoteIdent(table)}`);
+      dumps.push({ table, rows });
+      console.log(`  read ${table}: ${rows.length} rows`);
     }
 
     await dest.unsafe("set session_replication_role = replica");
-    for (const table of tables) {
-      const ident = dest(table);
-      await dest.unsafe(`truncate table ${quoteIdent(table)} cascade`);
-      const rows = await source.unsafe(`select * from ${quoteIdent(table)}`);
+    await dest.unsafe(
+      `truncate table ${tables.map(quoteIdent).join(", ")} restart identity cascade`,
+    );
+
+    // Parents first so FKs succeed even if replica role is ignored.
+    const parentFirst = [
+      "managers",
+      "seasons",
+      "prize_config",
+      "settings",
+      ...tables.filter(
+        (t) =>
+          !["managers", "seasons", "prize_config", "settings"].includes(t),
+      ),
+    ].filter((t, i, arr) => tables.includes(t) && arr.indexOf(t) === i);
+
+    const byName = new Map(dumps.map((d) => [d.table, d.rows]));
+    for (const table of parentFirst) {
+      const rows = byName.get(table) ?? [];
       if (rows.length === 0) {
         console.log(`  ${table}: 0 rows`);
         continue;
       }
       const columns = Object.keys(rows[0]);
+      const ident = dest(table);
       await dest`insert into ${ident} ${dest(rows, ...columns)}`;
-      console.log(`  ${table}: ${rows.length} rows`);
+      console.log(`  wrote ${table}: ${rows.length} rows`);
     }
 
     const sequences = await dest`
@@ -83,7 +110,6 @@ async function main() {
     `;
     for (const seq of sequences) {
       const name = `${seq.schemaname}.${seq.sequencename}`;
-      // Best-effort: sequences named <table>_<col>_seq
       const match = String(seq.sequencename).match(/^(.*)_([^_]+)_seq$/);
       if (!match) continue;
       const table = match[1];
@@ -91,10 +117,10 @@ async function main() {
       if (!destTables.has(table)) continue;
       try {
         await dest.unsafe(
-          `select setval(${literal(name)}, coalesce((select max(${quoteIdent(col)}) from ${quoteIdent(table)}), 1))`,
+          `select setval('${name.replace(/'/g, "''")}', coalesce((select max(${quoteIdent(col)}) from ${quoteIdent(table)}), 1))`,
         );
       } catch {
-        // ignore tables without that column
+        // ignore
       }
     }
 
@@ -104,14 +130,6 @@ async function main() {
     await source.end({ timeout: 2 });
     await dest.end({ timeout: 2 });
   }
-}
-
-function quoteIdent(name) {
-  return `"${String(name).replace(/"/g, '""')}"`;
-}
-
-function literal(value) {
-  return `'${String(value).replace(/'/g, "''")}'`;
 }
 
 main().catch((err) => {
