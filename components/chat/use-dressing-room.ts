@@ -78,8 +78,8 @@ export function useDressingRoom(
   const [roster, setRoster] = useState<ChatRosterSeat[]>([]);
   const [gameweek, setGameweek] = useState<number | null>(null);
   const [actingManagerId, setActingManagerId] = useState<number | null>(null);
-  const [online, setOnline] = useState<ChatPresencePayload[]>([]);
-  const [typing, setTyping] = useState<{ managerId: number; displayName: string }[]>(
+  const [online] = useState<ChatPresencePayload[]>([]);
+  const [typing] = useState<{ managerId: number; displayName: string }[]>(
     [],
   );
   const [speakingIds, setSpeakingIds] = useState<number[]>([]);
@@ -198,8 +198,8 @@ export function useDressingRoom(
     [markSpeaking, me?.managerId],
   );
 
-  const broadcast = useCallback((_event: BroadcastEvent) => {
-    // Poll-only: other clients pick up messages on the 8s interval.
+  const broadcast = useCallback((..._unused: unknown[]) => {
+    void _unused;
   }, []);
 
   const load = useCallback(async (afterId?: number) => {
@@ -313,13 +313,17 @@ export function useDressingRoom(
     return () => {
       cancelled = true;
       document.removeEventListener("visibilitychange", onVisibility);
-      for (const t of typingTimers.current.values()) clearTimeout(t);
+      const typing = [...typingTimers.current.values()];
+      const speaking = [...speakingTimers.current.values()];
+      const taunts = [...tauntTimers.current.values()];
+      const hits = [...hitTimers.current.values()];
+      for (const t of typing) clearTimeout(t);
       typingTimers.current.clear();
-      for (const t of speakingTimers.current.values()) clearTimeout(t);
+      for (const t of speaking) clearTimeout(t);
       speakingTimers.current.clear();
-      for (const t of tauntTimers.current.values()) clearTimeout(t);
+      for (const t of taunts) clearTimeout(t);
       tauntTimers.current.clear();
-      for (const t of hitTimers.current.values()) clearTimeout(t);
+      for (const t of hits) clearTimeout(t);
       hitTimers.current.clear();
       stopLive();
     };

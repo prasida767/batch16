@@ -15,7 +15,7 @@ const RivalriesBoardView = nextDynamic(
   },
 );
 
-export const revalidate = 120;
+export const dynamic = "force-dynamic";
 
 export default async function RivalriesPage() {
   const result = await getRivalriesBoard();

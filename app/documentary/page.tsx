@@ -20,7 +20,7 @@ const DocumentaryShelf = nextDynamic(
   },
 );
 
-export const revalidate = 120;
+export const dynamic = "force-dynamic";
 
 export default async function DocumentaryPage() {
   if (!isDatabaseConfigured()) {

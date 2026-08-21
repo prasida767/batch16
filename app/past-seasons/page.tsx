@@ -20,7 +20,7 @@ import {
 import { formatMoney } from "@/lib/prizes";
 import { cn } from "@/lib/utils";
 
-export const revalidate = 120;
+export const dynamic = "force-dynamic";
 
 export default async function PastSeasonsPage({
   searchParams,

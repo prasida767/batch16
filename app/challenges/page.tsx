@@ -15,7 +15,7 @@ const ChallengesBoard = nextDynamic(
   },
 );
 
-export const revalidate = 30;
+export const dynamic = "force-dynamic";
 
 export default async function ChallengesPage() {
   const data = await getChallengesPageData();

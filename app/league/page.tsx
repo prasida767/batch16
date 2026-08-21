@@ -11,7 +11,7 @@ import { getDashboardData } from "@/lib/league";
 import { getUpcomingFixtures } from "@/lib/fpl";
 import { isDatabaseConfigured } from "@/lib/db";
 
-export const revalidate = 60;
+export const dynamic = "force-dynamic";
 
 async function loadFeaturedEpisode() {
   if (!isDatabaseConfigured()) return null;

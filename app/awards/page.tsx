@@ -14,7 +14,7 @@ import { buttonVariants } from "@/components/ui/button";
 import { getAwardsPageData } from "@/app/social/actions";
 import { cn } from "@/lib/utils";
 
-export const revalidate = 60;
+export const dynamic = "force-dynamic";
 
 export default async function AwardsPage({
   searchParams,
