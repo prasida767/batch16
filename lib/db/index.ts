@@ -1,6 +1,7 @@
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import * as schema from "./schema";
+import { serializePostgresClient } from "./serialize";
 
 type Db = ReturnType<typeof drizzle<typeof schema>>;
 
@@ -27,13 +28,15 @@ export function getDb(): Db {
   }
 
   if (!globalForDb.sql) {
-    globalForDb.sql = postgres(connectionString, {
-      prepare: false, // required for PgBouncer transaction mode
-      max: 1, // one connection per serverless isolate
-      idle_timeout: 20,
-      max_lifetime: 60 * 5,
-      connect_timeout: 10,
-    });
+    globalForDb.sql = serializePostgresClient(
+      postgres(connectionString, {
+        prepare: false, // required for PgBouncer transaction mode
+        max: 1, // one connection per serverless isolate
+        idle_timeout: 20,
+        max_lifetime: 60 * 5,
+        connect_timeout: 10,
+      }),
+    );
   }
   if (!globalForDb.db) {
     globalForDb.db = drizzle(globalForDb.sql, { schema });
