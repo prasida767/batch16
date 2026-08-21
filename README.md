@@ -14,13 +14,12 @@ Built for managers who already know each other. Not a public product.
 | **Live** | Match-centre style scores while the gameweek is on |
 | **Baaji** | Side bets between managers |
 | **Rivalries** | Who owns who, historically |
+| **Penalties** | Quick shootout game |
 | **Awards** | Weekly shout-outs |
 | **Documentary** | Auto episodes after finished gameweeks |
 | **Dressing Room** | League chat + taunts |
 | **Past seasons** | Historical winners & prizes |
 | **Guide** | In-app FAQ / how-to for players |
-
-> **Penalties** (shootout mini-game) is archived under `archive/penalties/` until we leave free-tier Supabase limits.
 
 Players: open **Guide** in the app (`/guide`) after you sign in.  
 Developers: see **[CONTRIBUTING.md](./CONTRIBUTING.md)**.
@@ -104,7 +103,6 @@ Never commit secrets. See **[SECURITY.md](./SECURITY.md)**.
 | `npm test` | Vitest |
 | `npm run security:check` | Scan for tracked secrets |
 | `npm run db:migrate` | Apply Drizzle migrations |
-| `npm run db:indexes` | Apply performance indexes (`0015`) if migrate hangs |
 | `npm run db:studio` | Browse the database |
 
 ---
@@ -151,7 +149,7 @@ npm run typecheck && npm test && npm run security:check
 ## Production checklist
 
 - [ ] Env vars set on the host (`ADMIN_EMAILS`, `NEXT_PUBLIC_SITE_URL`, …)  
-- [ ] Migrations applied (including RLS in `drizzle/0014_rls_policies.sql` and indexes in `drizzle/0015_performance_indexes.sql` if not already)  
+- [ ] Migrations applied (including RLS in `drizzle/0014_rls_policies.sql` if not already)  
 - [ ] Supabase Auth redirects + Realtime configured  
 - [ ] `typecheck` / `test` / `security:check` / `build` pass  
 - [ ] Register → confirm → login → claim works once end-to-end  

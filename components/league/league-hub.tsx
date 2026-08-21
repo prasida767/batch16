@@ -1,9 +1,9 @@
 "use client";
 
-import dynamic from "next/dynamic";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { LayoutGrid, Map as MapIcon, CalendarDays } from "lucide-react";
 import { StandingsTable } from "@/components/league/standings-table";
+import { RankOnPitch } from "@/components/league/rank-on-pitch";
 import { UpcomingFixtures } from "@/components/league/upcoming-fixtures";
 import { LiveBadge } from "@/components/league/shared";
 import { FadeIn } from "@/components/motion/page-transition";
@@ -18,29 +18,8 @@ import type {
 } from "@/lib/league/types";
 import type { UpcomingGameweekFixtures } from "@/lib/fpl";
 import type { DocumentaryEpisodeView } from "@/lib/documentary";
+import { FeaturedEpisodeCard } from "@/components/documentary/featured-episode-card";
 import { cn } from "@/lib/utils";
-
-const RankOnPitch = dynamic(
-  () =>
-    import("@/components/league/rank-on-pitch").then((m) => m.RankOnPitch),
-  {
-    loading: () => (
-      <div className="h-80 animate-pulse rounded-2xl bg-muted/40" aria-hidden />
-    ),
-  },
-);
-
-const FeaturedEpisodeCard = dynamic(
-  () =>
-    import("@/components/documentary/featured-episode-card").then(
-      (m) => m.FeaturedEpisodeCard,
-    ),
-  {
-    loading: () => (
-      <div className="h-28 animate-pulse rounded-2xl bg-muted/40" aria-hidden />
-    ),
-  },
-);
 
 const POLL_MS = 60_000;
 
@@ -169,7 +148,6 @@ export function LeagueHub({
   useEffect(() => {
     if (!active) return;
     const interval = window.setInterval(() => {
-      if (document.visibilityState !== "visible") return;
       void refresh();
     }, POLL_MS);
     const onVisible = () => {

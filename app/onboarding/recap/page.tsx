@@ -33,15 +33,10 @@ export default async function SeasonRecapPage({
     redirect(nextPath);
   }
 
-  let payload;
-  try {
-    payload = await getSeasonRecapPayload({
-      managerId: manager.managerId,
-      displayName: manager.displayName,
-    });
-  } catch {
-    redirect(nextPath);
-  }
+  const payload = await getSeasonRecapPayload({
+    managerId: manager.managerId,
+    displayName: manager.displayName,
+  });
 
   if (!payload) {
     redirect(nextPath);

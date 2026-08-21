@@ -1,24 +1,12 @@
-import nextDynamic from "next/dynamic";
+import { DocumentaryShelf } from "@/components/documentary/documentary-shelf";
 import { getActingManagerId } from "@/lib/challenges";
 import { getLiveQuoteCandidate } from "@/lib/chat";
 import { ensureChatGameweekRollover } from "@/lib/chat/rollover";
 import {
-  ensureDocumentaryEpisodesThrottled,
+  ensureDocumentaryEpisodes,
   getDocumentaryShelf,
 } from "@/lib/documentary";
 import { isDatabaseConfigured } from "@/lib/db";
-
-const DocumentaryShelf = nextDynamic(
-  () =>
-    import("@/components/documentary/documentary-shelf").then(
-      (m) => m.DocumentaryShelf,
-    ),
-  {
-    loading: () => (
-      <div className="h-[28rem] animate-pulse rounded-2xl bg-muted/40" aria-hidden />
-    ),
-  },
-);
 
 export const dynamic = "force-dynamic";
 
@@ -31,7 +19,7 @@ export default async function DocumentaryPage() {
     );
   }
 
-  await ensureDocumentaryEpisodesThrottled();
+  await ensureDocumentaryEpisodes();
   const viewerId = await getActingManagerId();
   const shelf = await getDocumentaryShelf(viewerId);
 

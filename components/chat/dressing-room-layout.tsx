@@ -5,24 +5,9 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { ChevronRight, Maximize2, MessageSquareText, Shirt, X } from "lucide-react";
-import dynamic from "next/dynamic";
 import { DressingRoomProvider, useDressingRoomContext } from "@/components/chat/dressing-room-context";
+import { DressingRoomPanel } from "@/components/chat/dressing-room-panel";
 import { readChatOpen, writeChatOpen } from "@/components/chat/use-dressing-room";
-
-const DressingRoomPanel = dynamic(
-  () =>
-    import("@/components/chat/dressing-room-panel").then(
-      (m) => m.DressingRoomPanel,
-    ),
-  {
-    ssr: false,
-    loading: () => (
-      <div className="flex h-full min-h-[20rem] items-center justify-center bg-muted/20 text-sm text-muted-foreground">
-        Opening Dressing Room…
-      </div>
-    ),
-  },
-);
 import { Button } from "@/components/ui/button";
 import {
   Sheet,
@@ -59,7 +44,7 @@ function DressingRoomChrome({
   const pathname = usePathname();
   const reduce = useReducedMotion();
   const { unread, setPanelOpen } = useDressingRoomContext();
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(true);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
   const [hydrated, setHydrated] = useState(false);

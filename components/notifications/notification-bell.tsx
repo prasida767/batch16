@@ -27,17 +27,11 @@ const TYPE_ICON: Record<string, string> = {
 };
 
 export function NotificationBell() {
-  const {
-    items,
-    unreadCount,
-    loading,
-    markRead,
-    markAllRead,
-    setPanelOpen,
-  } = useNotifications();
+  const { items, unreadCount, loading, markRead, markAllRead } =
+    useNotifications();
 
   return (
-    <DropdownMenu onOpenChange={setPanelOpen}>
+    <DropdownMenu>
       <DropdownMenuTrigger
         render={
           <Button

@@ -1,6 +1,5 @@
 import "server-only";
 
-import { cache } from "react";
 import { and, asc, eq, inArray, isNull, lt, sql } from "drizzle-orm";
 import { getDb, chatMessages, settings } from "@/lib/db";
 import { getCurrentGameweek } from "@/lib/fpl";
@@ -115,36 +114,20 @@ export async function archiveChatGameweek(gameweek: number) {
     );
 }
 
-let lastRolloverAt = 0;
-let lastRolloverGw = 0;
-const ROLLOVER_THROTTLE_MS = 90_000;
-
 /**
  * When FPL advances to a new gameweek, archive previous active chat weeks.
- * Throttled across requests in this isolate — every chat GET used to hit FPL.
+ * Safe to call on every chat read/write.
  */
-export const ensureChatGameweekRollover = cache(async (): Promise<number> => {
-  const now = Date.now();
-  if (
-    lastRolloverGw > 0 &&
-    now - lastRolloverAt < ROLLOVER_THROTTLE_MS
-  ) {
-    return lastRolloverGw;
-  }
-
+export async function ensureChatGameweekRollover(): Promise<number> {
   const current = await getCurrentGameweek();
   if (current == null || current <= 0) {
     const stored = await getStoredActiveGameweek();
-    lastRolloverGw = stored ?? 1;
-    lastRolloverAt = now;
-    return lastRolloverGw;
+    return stored ?? 1;
   }
 
   const stored = await getStoredActiveGameweek();
   if (stored == null) {
     await setStoredActiveGameweek(current);
-    lastRolloverGw = current;
-    lastRolloverAt = now;
     return current;
   }
 
@@ -163,10 +146,8 @@ export const ensureChatGameweekRollover = cache(async (): Promise<number> => {
     await setStoredActiveGameweek(current);
   }
 
-  lastRolloverGw = current;
-  lastRolloverAt = now;
   return current;
-});
+}
 
 /** Force archive of a specific GW (admin / tests). */
 export async function forceArchiveGameweek(gameweek: number) {
@@ -196,15 +177,8 @@ export async function recountReactions(messageId: number) {
     .where(eq(chatMessages.id, messageId));
 }
 
-let lastPurgeAt = 0;
-const PURGE_MIN_INTERVAL_MS = 60_000;
-
 /** Soft-delete any leftover non-HOF messages older than the active GW (safety net). */
 export async function purgeStaleActiveMessages(activeGameweek: number) {
-  const now = Date.now();
-  if (now - lastPurgeAt < PURGE_MIN_INTERVAL_MS) return;
-  lastPurgeAt = now;
-
   const db = getDb();
   await db
     .update(chatMessages)

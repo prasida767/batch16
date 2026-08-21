@@ -33,6 +33,7 @@ const PRIMARY_LINKS: NavLink[] = [
   { href: "/live", label: "Live" },
   { href: "/challenges", label: "Baaji" },
   { href: "/rivalries", label: "Rivalries" },
+  { href: "/penalties", label: "Penalties" },
   { href: "/awards", label: "Awards" },
   { href: "/documentary", label: "Documentary" },
   { href: "/past-seasons", label: "Past seasons" },

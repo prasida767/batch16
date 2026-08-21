@@ -6,7 +6,6 @@ export {
 } from "@/lib/documentary/types";
 export {
   ensureDocumentaryEpisodes,
-  ensureDocumentaryEpisodesThrottled,
   generateSeasonFinaleEpisode,
   generateWeeklyDocumentaryEpisode,
   getBestChatQuoteForGameweek,

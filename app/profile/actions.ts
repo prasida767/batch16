@@ -105,6 +105,7 @@ export async function updateAvatarAction(
     revalidatePath("/profile");
     revalidatePath("/league");
     revalidatePath("/managers");
+    revalidatePath("/penalties");
     revalidatePath("/live");
 
     return { ok: true, message: "Avatar updated." };

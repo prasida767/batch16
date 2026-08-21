@@ -1,7 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { RealtimeChannel } from "@supabase/supabase-js";
 import {
+  CHAT_CHANNEL,
   type ChatMessageView,
   type ChatPresencePayload,
 } from "@/lib/chat/types";
@@ -11,6 +13,8 @@ import {
   type TauntActionId,
   type TauntEvent,
 } from "@/lib/chat/taunts";
+import { createClient } from "@/lib/supabase/client";
+import { isSupabaseConfigured } from "@/lib/supabase/config";
 
 type ChatOk = {
   kind: "ok";
@@ -34,8 +38,7 @@ const TAUNT_COOLDOWN_MS = 1200;
 
 const SEEN_KEY = "batch16_dressing_room_seen";
 const OPEN_KEY = "batch16_dressing_room_open";
-const FALLBACK_POLL_MS = 8_000;
-const BACKGROUND_POLL_MS = 90_000;
+const FALLBACK_POLL_MS = 25_000;
 
 function upsertMessage(list: ChatMessageView[], message: ChatMessageView) {
   const idx = list.findIndex((m) => m.id === message.id);
@@ -46,9 +49,9 @@ function upsertMessage(list: ChatMessageView[], message: ChatMessageView) {
 }
 
 export function readChatOpen(): boolean {
-  if (typeof window === "undefined") return false;
+  if (typeof window === "undefined") return true;
   const raw = window.localStorage.getItem(OPEN_KEY);
-  if (raw == null) return false;
+  if (raw == null) return true;
   return raw === "1";
 }
 
@@ -78,20 +81,21 @@ export function useDressingRoom(
   const [roster, setRoster] = useState<ChatRosterSeat[]>([]);
   const [gameweek, setGameweek] = useState<number | null>(null);
   const [actingManagerId, setActingManagerId] = useState<number | null>(null);
-  const [online] = useState<ChatPresencePayload[]>([]);
-  const [typing] = useState<{ managerId: number; displayName: string }[]>(
+  const [online, setOnline] = useState<ChatPresencePayload[]>([]);
+  const [typing, setTyping] = useState<{ managerId: number; displayName: string }[]>(
     [],
   );
   const [speakingIds, setSpeakingIds] = useState<number[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [unread, setUnread] = useState(0);
-  const [panelOpen, setPanelOpen] = useState(false);
+  const [panelOpen, setPanelOpen] = useState(true);
   const [taunts, setTaunts] = useState<TauntEvent[]>([]);
   const [hitReactions, setHitReactions] = useState<
     Record<number, TauntActionId>
   >({});
 
+  const channelRef = useRef<RealtimeChannel | null>(null);
   const openRef = useRef(true);
   const seenRef = useRef(0);
   const lastIdRef = useRef(0);
@@ -100,7 +104,6 @@ export function useDressingRoom(
   const tauntTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   const hitTimers = useRef(new Map<number, ReturnType<typeof setTimeout>>());
   const lastTauntAt = useRef(0);
-  const failStreak = useRef(0);
 
   openRef.current = panelOpen;
 
@@ -198,26 +201,27 @@ export function useDressingRoom(
     [markSpeaking, me?.managerId],
   );
 
-  const broadcast = useCallback((..._unused: unknown[]) => {
-    void _unused;
+  const broadcast = useCallback((event: BroadcastEvent) => {
+    const ch = channelRef.current;
+    if (!ch) return;
+    void ch.send({
+      type: "broadcast",
+      event: "dressing",
+      payload: event,
+    });
   }, []);
 
   const load = useCallback(async (afterId?: number) => {
     if (!enabled) return;
-    if (failStreak.current >= 4) return;
     try {
       const qs =
         afterId != null && afterId > 0 ? `?after=${afterId}` : "";
       const res = await fetch(`/api/chat${qs}`, { cache: "no-store" });
       const data = (await res.json()) as ChatOk | { kind: "error"; message: string };
-      if (!res.ok || data.kind !== "ok") {
-        failStreak.current += 1;
-        setError(
-          data.kind === "error" ? data.message : "Couldn't reach the Dressing Room.",
-        );
+      if (data.kind !== "ok") {
+        setError(data.message);
         return;
       }
-      failStreak.current = 0;
       setError(null);
       setGameweek(data.gameweek);
       setActingManagerId(data.actingManagerId);
@@ -242,7 +246,6 @@ export function useDressingRoom(
         }
       }
     } catch {
-      failStreak.current += 1;
       setError("Couldn't reach the Dressing Room.");
     } finally {
       setLoading(false);
@@ -256,15 +259,8 @@ export function useDressingRoom(
     }
     setPanelOpen(readChatOpen());
     seenRef.current = readSeenId();
-  }, [enabled]);
-
-  useEffect(() => {
-    if (!enabled || !panelOpen) {
-      if (!panelOpen) setLoading(false);
-      return;
-    }
     void load();
-  }, [enabled, panelOpen, load]);
+  }, [enabled, load]);
 
   useEffect(() => {
     if (!enabled) return;
@@ -274,72 +270,101 @@ export function useDressingRoom(
     }
   }, [enabled, panelOpen, messages, markSeen]);
 
-  // Poll while the Dressing Room is open (no free-tier Realtime sockets).
   useEffect(() => {
-    if (!enabled || !panelOpen) return;
+    if (!enabled || !isSupabaseConfigured()) return;
 
+    const supabase = createClient();
     let cancelled = false;
-    let poll: number | undefined;
 
-    const stopLive = () => {
-      if (poll != null) {
-        window.clearInterval(poll);
-        poll = undefined;
-      }
-    };
+    const channel = supabase.channel(CHAT_CHANNEL, {
+      config: {
+        presence: { key: me ? String(me.managerId) : "anon" },
+        broadcast: { self: false },
+      },
+    });
+    channelRef.current = channel;
 
-    const startLive = () => {
-      if (cancelled || poll != null) return;
-      poll = window.setInterval(() => {
-        if (document.visibilityState !== "visible") return;
-        const last = lastIdRef.current;
-        void load(last > 0 ? last : undefined);
-      }, FALLBACK_POLL_MS);
-    };
+    channel
+      .on("broadcast", { event: "dressing" }, ({ payload }) => {
+        const event = payload as BroadcastEvent;
+        if (event.type === "typing") {
+          if (event.managerId === me?.managerId) return;
+          setTyping((prev) => {
+            if (prev.some((t) => t.managerId === event.managerId)) return prev;
+            return [
+              ...prev,
+              {
+                managerId: event.managerId,
+                displayName: event.displayName,
+              },
+            ];
+          });
+          const existing = typingTimers.current.get(event.managerId);
+          if (existing) clearTimeout(existing);
+          typingTimers.current.set(
+            event.managerId,
+            setTimeout(() => {
+              setTyping((prev) =>
+                prev.filter((t) => t.managerId !== event.managerId),
+              );
+              typingTimers.current.delete(event.managerId);
+            }, 2200),
+          );
+          return;
+        }
+        if (event.type === "taunt") {
+          applyTaunt(event.taunt);
+          return;
+        }
+        applyIncoming(event.message, event.type);
+      })
+      .on("presence", { event: "sync" }, () => {
+        const state = channel.presenceState();
+        const map = new Map<number, ChatPresencePayload>();
+        for (const metas of Object.values(state)) {
+          for (const raw of metas as unknown as ChatPresencePayload[]) {
+            if (raw?.managerId != null) map.set(raw.managerId, raw);
+          }
+        }
+        setOnline(
+          [...map.values()].sort((a, b) =>
+            a.displayName.localeCompare(b.displayName),
+          ),
+        );
+      })
+      .subscribe(async (status) => {
+        if (cancelled || status !== "SUBSCRIBED") return;
+        if (me) {
+          await channel.track({
+            managerId: me.managerId,
+            displayName: me.displayName,
+            avatarUrl: me.avatarUrl,
+            onlineAt: Date.now(),
+          } satisfies ChatPresencePayload);
+        }
+      });
 
-    const onVisibility = () => {
-      if (document.visibilityState === "visible") {
-        startLive();
-        const last = lastIdRef.current;
-        void load(last > 0 ? last : undefined);
-      } else {
-        stopLive();
-      }
-    };
-
-    if (document.visibilityState === "visible") startLive();
-    document.addEventListener("visibilitychange", onVisibility);
+    const poll = window.setInterval(() => {
+      const last = lastIdRef.current;
+      void load(last > 0 ? last : undefined);
+    }, FALLBACK_POLL_MS);
 
     return () => {
       cancelled = true;
-      document.removeEventListener("visibilitychange", onVisibility);
-      const typing = [...typingTimers.current.values()];
-      const speaking = [...speakingTimers.current.values()];
-      const taunts = [...tauntTimers.current.values()];
-      const hits = [...hitTimers.current.values()];
-      for (const t of typing) clearTimeout(t);
+      window.clearInterval(poll);
+      for (const t of typingTimers.current.values()) clearTimeout(t);
       typingTimers.current.clear();
-      for (const t of speaking) clearTimeout(t);
+      for (const t of speakingTimers.current.values()) clearTimeout(t);
       speakingTimers.current.clear();
-      for (const t of taunts) clearTimeout(t);
+      for (const t of tauntTimers.current.values()) clearTimeout(t);
       tauntTimers.current.clear();
-      for (const t of hits) clearTimeout(t);
+      for (const t of hitTimers.current.values()) clearTimeout(t);
       hitTimers.current.clear();
-      stopLive();
+      channelRef.current = null;
+      void supabase.removeChannel(channel);
     };
-  }, [enabled, panelOpen, load]);
-
-  // Slow unread poll while the panel is closed (no realtime sockets).
-  useEffect(() => {
-    if (!enabled || panelOpen) return;
-
-    const poll = window.setInterval(() => {
-      if (document.visibilityState !== "visible") return;
-      void load();
-    }, BACKGROUND_POLL_MS);
-
-    return () => window.clearInterval(poll);
-  }, [enabled, panelOpen, load]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- rebind when identity changes
+  }, [enabled, me?.managerId, me?.displayName, applyIncoming, applyTaunt, load]);
 
   const sendTyping = useCallback(() => {
     if (!enabled || !me) return;

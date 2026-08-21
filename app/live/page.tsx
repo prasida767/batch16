@@ -8,12 +8,11 @@ import { getVerifiedManager } from "@/lib/auth/session";
 import { getLiveStandingsPayload } from "@/lib/league";
 
 export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 export default async function LiveMatchCentrePage() {
-  const [result, me] = await Promise.all([
-    getLiveStandingsPayload(),
-    getVerifiedManager().catch(() => null),
-  ]);
+  const result = await getLiveStandingsPayload();
+  const me = await getVerifiedManager().catch(() => null);
 
   if (result.kind === "no_league") {
     return (

@@ -1,26 +1,15 @@
 import type { ReactNode } from "react";
-import { Suspense } from "react";
 import Link from "next/link";
 import { headers } from "next/headers";
 import { DressingRoomLayout } from "@/components/chat/dressing-room-layout";
-import { CelebrationHost } from "@/components/layout/celebration-host";
+import { GwWinnerCelebration } from "@/components/layout/gw-winner-celebration";
 import { Navbar } from "@/components/layout/navbar";
 import { PublicHeader } from "@/components/layout/public-header";
 import { SiteFooter } from "@/components/layout/site-footer";
 import { PageTransition } from "@/components/motion/page-transition";
 import { NotificationProvider } from "@/components/notifications/notification-provider";
-import { getShellAuth } from "@/lib/auth/shell";
+import { getAuthStatus } from "@/lib/auth/session";
 import { getActiveGwWinnerCelebration } from "@/lib/league/celebration";
-
-async function CelebrationSlot() {
-  try {
-    const celebration = await getActiveGwWinnerCelebration();
-    if (!celebration) return null;
-    return <CelebrationHost celebration={celebration} />;
-  } catch {
-    return null;
-  }
-}
 
 async function currentPathname() {
   const h = await headers();
@@ -28,16 +17,20 @@ async function currentPathname() {
 }
 
 export async function SiteShell({ children }: { children: ReactNode }) {
-  const auth = await getShellAuth();
+  const auth = await getAuthStatus();
   const authLabel =
     auth.manager?.displayName ?? (auth.signedIn ? auth.email : null);
   const managerId = auth.manager?.managerId ?? null;
-  const needsClaim =
-    auth.signedIn && !auth.verified && !auth.managerLookupFailed;
+  const needsClaim = auth.signedIn && !auth.verified;
 
   const path = await currentPathname();
   const cinematic =
     path === "/onboarding/recap" || path.startsWith("/onboarding/recap");
+
+  const celebration =
+    auth.signedIn && !cinematic
+      ? await getActiveGwWinnerCelebration()
+      : null;
 
   if (!auth.signedIn) {
     return (
@@ -79,9 +72,9 @@ export async function SiteShell({ children }: { children: ReactNode }) {
             to unlock chat, Baaji, and notifications.
           </div>
         ) : null}
-        <Suspense fallback={null}>
-          <CelebrationSlot />
-        </Suspense>
+        {celebration ? (
+          <GwWinnerCelebration celebration={celebration} />
+        ) : null}
         <div className="flex min-h-0 flex-1 flex-col">
           <DressingRoomLayout
             managerId={managerId}

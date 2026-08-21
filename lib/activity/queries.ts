@@ -27,18 +27,20 @@ export const getActivityLeaderboard = cache(
     if (!isDatabaseConfigured()) return { kind: "no_db" };
 
     const db = getDb();
-    const prizeDisplay = await getActivityPrizeDisplay();
-    const managerRows = await db
-      .select({
-        managerId: managers.id,
-        fplEntryId: managers.fplEntryId,
-        displayName: managers.displayName,
-        avatarUrl: managers.avatarUrl,
-        activityPoints: managers.activityPoints,
-      })
-      .from(managers)
-      .where(isNotNull(managers.fplEntryId))
-      .orderBy(desc(managers.activityPoints), asc(managers.displayName));
+    const [prizeDisplay, managerRows] = await Promise.all([
+      getActivityPrizeDisplay(),
+      db
+        .select({
+          managerId: managers.id,
+          fplEntryId: managers.fplEntryId,
+          displayName: managers.displayName,
+          avatarUrl: managers.avatarUrl,
+          activityPoints: managers.activityPoints,
+        })
+        .from(managers)
+        .where(isNotNull(managers.fplEntryId))
+        .orderBy(desc(managers.activityPoints), asc(managers.displayName)),
+    ]);
 
     const rows: ActivityLeaderboardRow[] = managerRows.map((row, index) => ({
       ...row,

@@ -1,10 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import Image from "next/image";
+import { useState } from "react";
 import { motion, useReducedMotion } from "framer-motion";
 import type { ClubAvatarSpec } from "@/lib/avatars/clubs";
-import { usePageVisible } from "@/lib/hooks/use-page-visible";
 import { initials } from "@/lib/league/format";
 import { cn } from "@/lib/utils";
 
@@ -31,18 +29,7 @@ export function ClubAvatar({
   animated?: boolean;
 }) {
   const reduce = useReducedMotion();
-  const visible = usePageVisible();
-  const [isNarrow, setIsNarrow] = useState(false);
-
-  useEffect(() => {
-    const mq = window.matchMedia("(max-width: 768px)");
-    const sync = () => setIsNarrow(mq.matches);
-    sync();
-    mq.addEventListener("change", sync);
-    return () => mq.removeEventListener("change", sync);
-  }, []);
-
-  const live = animated && !reduce && visible && !isNarrow;
+  const live = animated && !reduce;
   const dim = SIZE[size];
   const monogram =
     spec.shortName?.slice(0, 3).toUpperCase() ||
@@ -124,22 +111,13 @@ export function PhotoAvatar({
   }
 
   return (
-    <span
-      className={cn(
-        "relative inline-block overflow-hidden rounded-full ring-1 ring-border",
-        className,
-      )}
-    >
-      <Image
-        src={src!}
-        alt=""
-        fill
-        sizes="80px"
-        className="object-cover"
-        unoptimized
-        onError={() => setFailed(true)}
-      />
-    </span>
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src={src!}
+      alt=""
+      className={cn("rounded-full object-cover ring-1 ring-border", className)}
+      onError={() => setFailed(true)}
+    />
   );
 }
 

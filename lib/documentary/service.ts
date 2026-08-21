@@ -1,7 +1,6 @@
 import "server-only";
 
 import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
-import { unstable_cache } from "next/cache";
 import { awardActivityPoints } from "@/lib/activity";
 import { ACTIVITY_ACTIONS } from "@/lib/activity/types";
 import { getQuoteOfWeek, listHallOfFame } from "@/lib/chat";
@@ -151,24 +150,7 @@ export async function listDocumentaryEpisodeViews(
 ): Promise<DocumentaryEpisodeView[]> {
   const db = getDb();
   const rows = await db
-    .select({
-      id: documentaryEpisodes.id,
-      kind: documentaryEpisodes.kind,
-      gameweek: documentaryEpisodes.gameweek,
-      title: documentaryEpisodes.title,
-      biggestShock: documentaryEpisodes.biggestShock,
-      worstDecision: documentaryEpisodes.worstDecision,
-      dramaticOvertake: documentaryEpisodes.dramaticOvertake,
-      quoteMessageId: documentaryEpisodes.quoteMessageId,
-      quoteBody: documentaryEpisodes.quoteBody,
-      quoteManagerName: documentaryEpisodes.quoteManagerName,
-      quoteReactionCount: documentaryEpisodes.quoteReactionCount,
-      cliffhanger: documentaryEpisodes.cliffhanger,
-      finaleSummary: documentaryEpisodes.finaleSummary,
-      ratingSum: documentaryEpisodes.ratingSum,
-      ratingCount: documentaryEpisodes.ratingCount,
-      generatedAt: documentaryEpisodes.generatedAt,
-    })
+    .select()
     .from(documentaryEpisodes)
     .orderBy(
       sql`CASE WHEN ${documentaryEpisodes.kind} = 'finale' THEN 1 ELSE 0 END`,
@@ -200,37 +182,8 @@ export async function getDocumentaryShelf(
 export async function getLatestDocumentaryEpisode(
   viewerId: number | null = null,
 ): Promise<DocumentaryEpisodeView | null> {
-  const db = getDb();
-  const [row] = await db
-    .select({
-      id: documentaryEpisodes.id,
-      kind: documentaryEpisodes.kind,
-      gameweek: documentaryEpisodes.gameweek,
-      title: documentaryEpisodes.title,
-      biggestShock: documentaryEpisodes.biggestShock,
-      worstDecision: documentaryEpisodes.worstDecision,
-      dramaticOvertake: documentaryEpisodes.dramaticOvertake,
-      quoteMessageId: documentaryEpisodes.quoteMessageId,
-      quoteBody: documentaryEpisodes.quoteBody,
-      quoteManagerName: documentaryEpisodes.quoteManagerName,
-      quoteReactionCount: documentaryEpisodes.quoteReactionCount,
-      cliffhanger: documentaryEpisodes.cliffhanger,
-      finaleSummary: documentaryEpisodes.finaleSummary,
-      ratingSum: documentaryEpisodes.ratingSum,
-      ratingCount: documentaryEpisodes.ratingCount,
-      generatedAt: documentaryEpisodes.generatedAt,
-    })
-    .from(documentaryEpisodes)
-    .orderBy(
-      sql`CASE WHEN ${documentaryEpisodes.kind} = 'finale' THEN 1 ELSE 0 END`,
-      desc(documentaryEpisodes.gameweek),
-      desc(documentaryEpisodes.generatedAt),
-    )
-    .limit(1);
-
-  if (!row) return null;
-  const myRatings = await loadMyRatings([row.id], viewerId);
-  return toView(row, myRatings.get(row.id) ?? null);
+  const shelf = await getDocumentaryShelf(viewerId);
+  return shelf.featured;
 }
 
 export async function getDocumentaryEpisodeById(
@@ -239,24 +192,7 @@ export async function getDocumentaryEpisodeById(
 ): Promise<DocumentaryEpisodeView | null> {
   const db = getDb();
   const [row] = await db
-    .select({
-      id: documentaryEpisodes.id,
-      kind: documentaryEpisodes.kind,
-      gameweek: documentaryEpisodes.gameweek,
-      title: documentaryEpisodes.title,
-      biggestShock: documentaryEpisodes.biggestShock,
-      worstDecision: documentaryEpisodes.worstDecision,
-      dramaticOvertake: documentaryEpisodes.dramaticOvertake,
-      quoteMessageId: documentaryEpisodes.quoteMessageId,
-      quoteBody: documentaryEpisodes.quoteBody,
-      quoteManagerName: documentaryEpisodes.quoteManagerName,
-      quoteReactionCount: documentaryEpisodes.quoteReactionCount,
-      cliffhanger: documentaryEpisodes.cliffhanger,
-      finaleSummary: documentaryEpisodes.finaleSummary,
-      ratingSum: documentaryEpisodes.ratingSum,
-      ratingCount: documentaryEpisodes.ratingCount,
-      generatedAt: documentaryEpisodes.generatedAt,
-    })
+    .select()
     .from(documentaryEpisodes)
     .where(eq(documentaryEpisodes.id, id))
     .limit(1);
@@ -555,21 +491,6 @@ export async function ensureDocumentaryEpisodes(): Promise<void> {
   if (seasonComplete && !hasFinale) {
     await generateSeasonFinaleEpisode({ notify: false });
   }
-}
-
-/**
- * Throttled ensure for page loads — avoids re-running episode generation
- * work on every navigation (writes still happen on cache miss).
- */
-export async function ensureDocumentaryEpisodesThrottled(): Promise<void> {
-  await unstable_cache(
-    async () => {
-      await ensureDocumentaryEpisodes();
-      return true as const;
-    },
-    ["ensure-documentary-episodes-v1"],
-    { revalidate: 300, tags: ["documentary"] },
-  )();
 }
 
 export async function rateDocumentaryEpisode(input: {

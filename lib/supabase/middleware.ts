@@ -66,18 +66,9 @@ export async function updateSession(request: NextRequest) {
     },
   });
 
-  let timedOut = false;
   const {
     data: { user },
-  } = await Promise.race([
-    supabase.auth.getUser(),
-    new Promise<{ data: { user: null } }>((resolve) => {
-      setTimeout(() => {
-        timedOut = true;
-        resolve({ data: { user: null } });
-      }, 6_000);
-    }),
-  ]);
+  } = await supabase.auth.getUser();
 
   if (user && pathname === "/") {
     const redirectUrl = request.nextUrl.clone();
@@ -86,11 +77,7 @@ export async function updateSession(request: NextRequest) {
     return NextResponse.redirect(redirectUrl);
   }
 
-  const hasSessionCookie = request.cookies
-    .getAll()
-    .some((c) => c.name.startsWith("sb-") && c.name.includes("auth-token"));
-
-  if (!user && !publicPath && !(timedOut && hasSessionCookie)) {
+  if (!user && !publicPath) {
     return unauthorized(request, pathname);
   }
 
@@ -104,22 +91,9 @@ export async function updateSession(request: NextRequest) {
     }
   }
 
-  // Identity for the RSC shell — overwrite any client-supplied values.
+  // Expose pathname to server components (cinematic shell, etc.)
   const requestHeaders = new Headers(request.headers);
-  requestHeaders.delete("x-signed-in");
-  requestHeaders.delete("x-user-id");
-  requestHeaders.delete("x-user-email");
-  requestHeaders.delete("x-is-admin");
   requestHeaders.set("x-pathname", pathname);
-  const sessionOk = Boolean(user) || (timedOut && hasSessionCookie);
-  requestHeaders.set("x-signed-in", sessionOk ? "1" : "0");
-  if (user?.id) requestHeaders.set("x-user-id", user.id);
-  if (user?.email) {
-    requestHeaders.set("x-user-email", user.email);
-    requestHeaders.set("x-is-admin", isAdminEmail(user.email) ? "1" : "0");
-  } else {
-    requestHeaders.set("x-is-admin", "0");
-  }
   const withPath = NextResponse.next({
     request: { headers: requestHeaders },
   });

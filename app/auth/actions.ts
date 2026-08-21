@@ -1,24 +1,17 @@
 "use server";
 
-import { revalidatePath, revalidateTag } from "next/cache";
+import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import type { ActionResult } from "@/lib/admin/shared";
-import { withTimeout } from "@/lib/async/timeout";
 import { claimManagerForCurrentUser } from "@/lib/auth/claim";
-import {
-  getVerifiedManager,
-  lookupVerifiedManagerForUser,
-} from "@/lib/auth/session";
+import { getVerifiedManager } from "@/lib/auth/session";
+import { getSeasonRecapPayload } from "@/lib/onboarding/recap";
+import { hasSeenSeasonRecap } from "@/lib/onboarding/seen";
 import { createClient } from "@/lib/supabase/server";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
-import { isDatabaseConfigured, resetDbClient } from "@/lib/db";
-import { AUTH_MANAGER_CACHE_TAG } from "@/lib/auth/shell";
-
-const AUTH_TIMEOUT_MS = 12_000;
-const VERIFY_TIMEOUT_MS = 8_000;
+import { isDatabaseConfigured } from "@/lib/db";
 
 function revalidateAuthPaths() {
-  revalidateTag(AUTH_MANAGER_CACHE_TAG);
   revalidatePath("/");
   revalidatePath("/league");
   revalidatePath("/challenges");
@@ -43,32 +36,21 @@ function recapRedirect(next: string | null, force = false) {
   return `${base}${join}next=${encodeURIComponent(next)}`;
 }
 
-/**
- * After password auth: decide claim vs league without blocking forever on Postgres.
- * Skips the heavy season-recap fetch on the critical path (recap is available from claim).
- */
-async function resolvePostLoginPath(
-  userId: string,
+async function maybeRecapPath(
+  managerId: number,
+  displayName: string,
   next: string | null,
 ): Promise<string> {
-  const league = next ?? "/league";
-  const claim = next
-    ? `/auth/claim?next=${encodeURIComponent(next)}`
-    : "/auth/claim";
-
-  if (!isDatabaseConfigured()) return claim;
-
+  if (!isDatabaseConfigured()) return next ?? "/league";
   try {
-    const verified = await withTimeout(
-      lookupVerifiedManagerForUser(userId),
-      VERIFY_TIMEOUT_MS,
-      "verify-manager",
-    );
-    return verified ? league : claim;
+    const payload = await getSeasonRecapPayload({ managerId, displayName });
+    if (!payload) return next ?? "/league";
+    if (await hasSeenSeasonRecap(payload.seasonLabel, managerId)) {
+      return next ?? "/league";
+    }
+    return recapRedirect(next);
   } catch {
-    await resetDbClient().catch(() => undefined);
-    // Auth already succeeded — never trap the user on the login button.
-    return league;
+    return next ?? "/league";
   }
 }
 
@@ -165,46 +147,29 @@ export async function loginAction(
   }
 
   const supabase = await createClient();
-
-  let authError: { message: string } | null = null;
-  let userId: string | null = null;
-  try {
-    const result = await withTimeout(
-      supabase.auth.signInWithPassword({ email, password }),
-      AUTH_TIMEOUT_MS,
-      "sign-in",
-    );
-    authError = result.error;
-    userId = result.data.user?.id ?? null;
-  } catch (error) {
-    return {
-      ok: false,
-      message:
-        error instanceof Error
-          ? error.message
-          : "Sign-in timed out. Try again in a moment.",
-    };
-  }
-
-  if (authError) {
-    return { ok: false, message: authError.message };
+  const { error } = await supabase.auth.signInWithPassword({ email, password });
+  if (error) {
+    return { ok: false, message: error.message };
   }
 
   revalidateAuthPaths();
 
-  // Prefer user id from sign-in; fall back to getUser if needed.
-  if (!userId) {
-    const { data } = await supabase.auth.getUser();
-    userId = data.user?.id ?? null;
+  const verified = await getVerifiedManager();
+  if (verified) {
+    redirect(
+      await maybeRecapPath(
+        verified.managerId,
+        verified.displayName,
+        next,
+      ),
+    );
   }
 
-  const dest = userId
-    ? await resolvePostLoginPath(userId, next)
-    : next
+  redirect(
+    next
       ? `/auth/claim?next=${encodeURIComponent(next)}`
-      : "/auth/claim";
-
-  redirect(dest);
+      : "/auth/claim",
+  );
 }
 
 export async function claimManagerAction(
@@ -221,23 +186,12 @@ export async function claimManagerAction(
   const avatarVariant = Number(formData.get("avatarVariant"));
   const next = safeNextPath(formData.get("next"));
 
-  let result: Awaited<ReturnType<typeof claimManagerForCurrentUser>>;
-  try {
-    result = await claimManagerForCurrentUser({
-      fullName,
-      teamName,
-      supportedTeamId,
-      avatarVariant: Number.isInteger(avatarVariant) ? avatarVariant : undefined,
-    });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "";
-    return {
-      ok: false,
-      message: message.includes("timed out")
-        ? "The database took too long. Wait a few seconds and try again."
-        : "Couldn't reach the database. Try again in a moment.",
-    };
-  }
+  const result = await claimManagerForCurrentUser({
+    fullName,
+    teamName,
+    supportedTeamId,
+    avatarVariant: Number.isInteger(avatarVariant) ? avatarVariant : undefined,
+  });
   if (!result.ok) {
     return { ok: false, message: result.message };
   }

@@ -28,7 +28,7 @@ const TOC: TocItem[] = [
   { id: "live", label: "Live" },
   { id: "baaji", label: "Baaji" },
   { id: "rivalries", label: "Rivalries" },
-  { id: "penalties", label: "Penalties (paused)" },
+  { id: "penalties", label: "Penalties" },
   { id: "awards", label: "Awards" },
   { id: "documentary", label: "Documentary" },
   { id: "dressing-room", label: "Dressing Room" },
@@ -242,16 +242,13 @@ export function GuideContent() {
           <Section
             id="penalties"
             icon={<Target className="size-4" />}
-            title="Penalties (paused)"
+            title="Penalties"
           >
             <p>
-              The shootout mini-game is temporarily turned off to keep the app
-              fast on free-tier hosting. The code lives in{" "}
-              <code className="rounded bg-muted px-1 py-0.5 text-xs">
-                archive/penalties
-              </code>{" "}
-              and can return after we upgrade. Solo, multiplayer challenges, and
-              live presence were all part of it.
+              A quick shootout game for when the FPL wait is killing you. Play
+              solo against the computer, or challenge another manager. In
+              multiplayer, both pick a direction each round — your choice stays
+              hidden until both lock in.
             </p>
           </Section>
 
