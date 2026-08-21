@@ -96,9 +96,11 @@ export async function createNotificationsForManagers(
     (id) => id !== input.actorManagerId,
   );
   if (unique.length === 0) return;
-  for (const recipientManagerId of unique) {
-    await createNotification({ ...input, recipientManagerId });
-  }
+  await Promise.all(
+    unique.map((recipientManagerId) =>
+      createNotification({ ...input, recipientManagerId }),
+    ),
+  );
 }
 
 export async function listNotificationsForManager(

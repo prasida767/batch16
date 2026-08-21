@@ -25,8 +25,10 @@ export default async function AdminManagersPage() {
     );
   }
 
-  const managers = await listAdminManagers();
-  const prize = await getPrizeAdminData().catch(() => null);
+  const [managers, prize] = await Promise.all([
+    listAdminManagers(),
+    getPrizeAdminData().catch(() => null),
+  ]);
 
   return (
     <div className="space-y-6">

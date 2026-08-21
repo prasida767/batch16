@@ -1,4 +1,4 @@
-import { relations, sql } from "drizzle-orm";
+import { relations } from "drizzle-orm";
 import {
   boolean,
   index,
@@ -41,11 +41,6 @@ export const managers = pgTable(
       .defaultNow()
       .notNull(),
   },
-  (table) => [
-    index("managers_activity_points_idx")
-      .on(table.activityPoints)
-      .where(sql`${table.fplEntryId} is not null`),
-  ],
 );
 
 export const prizeConfig = pgTable("prize_config", {
@@ -86,9 +81,6 @@ export const weeklyResults = pgTable(
       table.gameweek,
       table.managerId,
     ),
-    index("weekly_results_winners_idx")
-      .on(table.gameweek)
-      .where(sql`${table.isWinner} = true`),
   ],
 );
 
@@ -139,13 +131,7 @@ export const activityEvents = pgTable("activity_events", {
   createdAt: timestamp("created_at", { withTimezone: true })
     .defaultNow()
     .notNull(),
-}, (table) => [
-  index("activity_events_created_idx").on(table.createdAt),
-  index("activity_events_manager_created_idx").on(
-    table.managerId,
-    table.createdAt,
-  ),
-]);
+});
 
 /**
  * Links a Supabase Auth user to a league manager after name + team validation.
@@ -202,11 +188,7 @@ export const challenges = pgTable("challenges", {
     .defaultNow()
     .notNull(),
   resolvedAt: timestamp("resolved_at", { withTimezone: true }),
-}, (table) => [
-  index("challenges_status_created_idx").on(table.status, table.createdAt),
-  index("challenges_opponent_status_idx").on(table.opponentId, table.status),
-  index("challenges_creator_status_idx").on(table.creatorId, table.status),
-]);
+});
 
 /** Auto + manual weekly fun awards (separate from money prizes). */
 export const weeklyAwards = pgTable(
@@ -231,77 +213,48 @@ export const weeklyAwards = pgTable(
   },
   (table) => [
     uniqueIndex("weekly_awards_gw_key_idx").on(table.gameweek, table.awardKey),
-    index("weekly_awards_manager_idx")
-      .on(table.managerId)
-      .where(sql`${table.managerId} is not null`),
   ],
 );
 
 /** League trash-talk wall. Soft-delete via deletedAt. Legacy — prefer chat_messages. */
-export const wallPosts = pgTable(
-  "wall_posts",
-  {
-    id: serial("id").primaryKey(),
-    managerId: integer("manager_id")
-      .notNull()
-      .references(() => managers.id, { onDelete: "cascade" }),
-    body: text("body").notNull(),
-    parentId: integer("parent_id"),
-    createdAt: timestamp("created_at", { withTimezone: true })
-      .defaultNow()
-      .notNull(),
-    deletedAt: timestamp("deleted_at", { withTimezone: true }),
-  },
-  (table) => [
-    index("wall_posts_feed_idx")
-      .on(table.createdAt)
-      .where(sql`${table.deletedAt} is null`),
-  ],
-);
+export const wallPosts = pgTable("wall_posts", {
+  id: serial("id").primaryKey(),
+  managerId: integer("manager_id")
+    .notNull()
+    .references(() => managers.id, { onDelete: "cascade" }),
+  body: text("body").notNull(),
+  parentId: integer("parent_id"),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+  deletedAt: timestamp("deleted_at", { withTimezone: true }),
+});
 
 /**
  * Dressing Room league chat.
  * Active messages live per gameweek; high-reaction / pinned become Hall of Fame.
  */
-export const chatMessages = pgTable(
-  "chat_messages",
-  {
-    id: serial("id").primaryKey(),
-    managerId: integer("manager_id")
-      .notNull()
-      .references(() => managers.id, { onDelete: "cascade" }),
-    body: text("body").notNull(),
-    replyToId: integer("reply_to_id"),
-    gameweek: integer("gameweek").notNull(),
-    pinnedAt: timestamp("pinned_at", { withTimezone: true }),
-    pinnedBy: integer("pinned_by").references(() => managers.id, {
-      onDelete: "set null",
-    }),
-    isHallOfFame: boolean("is_hall_of_fame").notNull().default(false),
-    isQuoteOfWeek: boolean("is_quote_of_week").notNull().default(false),
-    /** Denormalized count of reaction rows for sorting / archival. */
-    reactionCount: integer("reaction_count").notNull().default(0),
-    createdAt: timestamp("created_at", { withTimezone: true })
-      .defaultNow()
-      .notNull(),
-    deletedAt: timestamp("deleted_at", { withTimezone: true }),
-  },
-  (table) => [
-    index("chat_messages_active_gw_created_idx")
-      .on(table.gameweek, table.createdAt)
-      .where(
-        sql`${table.deletedAt} is null and ${table.isHallOfFame} = false`,
-      ),
-    index("chat_messages_pinned_gw_idx")
-      .on(table.gameweek, table.pinnedAt)
-      .where(
-        sql`${table.deletedAt} is null and ${table.pinnedAt} is not null and ${table.isHallOfFame} = false`,
-      ),
-    index("chat_messages_hof_reactions_idx")
-      .on(table.gameweek, table.reactionCount)
-      .where(sql`${table.isHallOfFame} = true`),
-  ],
-);
+export const chatMessages = pgTable("chat_messages", {
+  id: serial("id").primaryKey(),
+  managerId: integer("manager_id")
+    .notNull()
+    .references(() => managers.id, { onDelete: "cascade" }),
+  body: text("body").notNull(),
+  replyToId: integer("reply_to_id"),
+  gameweek: integer("gameweek").notNull(),
+  pinnedAt: timestamp("pinned_at", { withTimezone: true }),
+  pinnedBy: integer("pinned_by").references(() => managers.id, {
+    onDelete: "set null",
+  }),
+  isHallOfFame: boolean("is_hall_of_fame").notNull().default(false),
+  isQuoteOfWeek: boolean("is_quote_of_week").notNull().default(false),
+  /** Denormalized count of reaction rows for sorting / archival. */
+  reactionCount: integer("reaction_count").notNull().default(0),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+  deletedAt: timestamp("deleted_at", { withTimezone: true }),
+});
 
 export const chatReactions = pgTable(
   "chat_reactions",
@@ -381,10 +334,6 @@ export const documentaryRatings = pgTable(
       table.episodeId,
       table.managerId,
     ),
-    index("documentary_ratings_manager_episode_idx").on(
-      table.managerId,
-      table.episodeId,
-    ),
   ],
 );
 
@@ -419,9 +368,6 @@ export const notifications = pgTable(
       table.recipientManagerId,
       table.readAt,
     ),
-    index("notifications_recipient_unread_partial_idx")
-      .on(table.recipientManagerId, table.createdAt)
-      .where(sql`${table.readAt} is null`),
   ],
 );
 

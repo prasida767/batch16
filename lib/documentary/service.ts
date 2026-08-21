@@ -427,27 +427,9 @@ export async function generateSeasonFinaleEpisode(
 
 /**
  * Archive chat for closed GWs, then generate any missing documentary episodes.
- * Throttled — full snapshot + writes must not run on every League page load.
+ * Safe to call from page loads.
  */
-const ENSURE_TTL_MS = 5 * 60_000;
-let lastEnsureAt = 0;
-let ensureInFlight: Promise<void> | null = null;
-
 export async function ensureDocumentaryEpisodes(): Promise<void> {
-  const now = Date.now();
-  if (now - lastEnsureAt < ENSURE_TTL_MS && ensureInFlight == null) return;
-  if (ensureInFlight) return ensureInFlight;
-
-  ensureInFlight = runEnsureDocumentaryEpisodes()
-    .catch(() => undefined)
-    .finally(() => {
-      lastEnsureAt = Date.now();
-      ensureInFlight = null;
-    });
-  return ensureInFlight;
-}
-
-async function runEnsureDocumentaryEpisodes(): Promise<void> {
   try {
     await ensureChatGameweekRollover();
   } catch {

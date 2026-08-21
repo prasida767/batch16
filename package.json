@@ -12,7 +12,6 @@
     "test:watch": "vitest",
     "security:check": "node scripts/check-secrets.js",
     "db:reset-runtime": "node scripts/reset-for-production.js",
-    "db:indexes": "node scripts/apply-performance-indexes.js",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:push": "drizzle-kit push",

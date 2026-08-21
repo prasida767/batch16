@@ -29,9 +29,11 @@ export async function getChallengesPageData() {
     return { kind: "no_db" as const };
   }
 
-  const actingManagerId = await getActingManagerId();
-  const managers = await listChallengeManagers();
-  const currentGameweek = await getCurrentGameweek().catch(() => null);
+  const [actingManagerId, managers, currentGameweek] = await Promise.all([
+    getActingManagerId(),
+    listChallengeManagers(),
+    getCurrentGameweek().catch(() => null),
+  ]);
 
   const board = await getChallengesBoard(actingManagerId);
   const acting =
@@ -170,8 +172,10 @@ export async function cancelChallengeAction(
 export async function getAdminChallengesData() {
   await requireAdmin();
   if (!isDatabaseConfigured()) return { kind: "no_db" as const };
-  const accepted = await listAcceptedChallengesForAdmin();
-  const season = await listAllChallengesForAdmin();
+  const [accepted, season] = await Promise.all([
+    listAcceptedChallengesForAdmin(),
+    listAllChallengesForAdmin(),
+  ]);
   return { kind: "ok" as const, accepted, season };
 }
 

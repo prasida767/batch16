@@ -25,8 +25,10 @@ export async function GET(request: Request) {
     Math.max(1, Number(url.searchParams.get("limit") ?? "30") || 30),
   );
 
-  const items = await listNotificationsForManager(managerId, { limit });
-  const unreadCount = await countUnreadNotifications(managerId);
+  const [items, unreadCount] = await Promise.all([
+    listNotificationsForManager(managerId, { limit }),
+    countUnreadNotifications(managerId),
+  ]);
 
   return NextResponse.json({
     kind: "ok" as const,
