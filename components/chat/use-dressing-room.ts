@@ -206,11 +206,13 @@ export function useDressingRoom(
   const broadcast = useCallback((event: BroadcastEvent) => {
     const ch = channelRef.current;
     if (!ch) return;
-    void ch.send({
-      type: "broadcast",
-      event: "dressing",
-      payload: event,
-    });
+    void ch
+      .send({
+        type: "broadcast",
+        event: "dressing",
+        payload: event,
+      })
+      .catch(() => undefined);
   }, []);
 
   const load = useCallback(async (afterId?: number) => {
