@@ -27,14 +27,16 @@ export function getDb(): Db {
   }
 
   if (!globalForDb.sql) {
-    // Transaction pooler (6543): connection-startup `statement_timeout` is ignored,
-    // and default pipelining (max_pipeline: 100) can wedge the client forever when
-    // Promise.all fires multiple queries on one connection — see porsager/postgres#970.
+    // Transaction pooler (6543): connection-startup `statement_timeout` is ignored.
+    // Default max_pipeline (100) can wedge Supavisor when several queries are
+    // written before any response (Promise.all on max:1) — porsager/postgres#970.
+    // Use 1 (not 0): 0 skips `onexecute`, which breaks drizzle `db.transaction`
+    // with "Cannot set properties of undefined (setting 'onclose')".
     globalForDb.sql = postgres(connectionString, {
       prepare: false, // required for PgBouncer / Supavisor transaction mode
       max: 1, // one connection per serverless isolate
       // @ts-expect-error max_pipeline exists in postgres@3.4 but is missing from types
-      max_pipeline: 0,
+      max_pipeline: 1,
       idle_timeout: 20,
       max_lifetime: 60 * 5,
       connect_timeout: 5,
