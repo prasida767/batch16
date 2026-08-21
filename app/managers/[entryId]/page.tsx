@@ -24,6 +24,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { chipLabel, getManagerDetail } from "@/lib/league";
+import { getAuthStatus } from "@/lib/auth/session";
 import { getManagerRivalryProfile } from "@/lib/rivalries";
 import { ManagerRivalrySection } from "@/components/rivalries/manager-rivalry-section";
 
@@ -36,7 +37,10 @@ export default async function ManagerDetailPage({
 }) {
   const { entryId: raw } = await params;
   const entryId = Number(raw);
-  const result = await getManagerDetail(entryId);
+  const [result, auth] = await Promise.all([
+    getManagerDetail(entryId),
+    getAuthStatus(),
+  ]);
 
   if (result.kind === "not_found") notFound();
 
@@ -298,11 +302,17 @@ export default async function ManagerDetailPage({
           <CardContent>
             {data.balanceEvents.length === 0 ? (
               <p className="text-sm text-muted-foreground">
-                No prize movements yet. Set amounts in{" "}
-                <Link href="/admin/prizes" className="underline">
-                  prize config
-                </Link>
-                .
+                No prize movements yet.
+                {auth.isAdmin ? (
+                  <>
+                    {" "}
+                    Set amounts in{" "}
+                    <Link href="/admin/settings" className="underline">
+                      prize config
+                    </Link>
+                    .
+                  </>
+                ) : null}
               </p>
             ) : (
               <ol className="space-y-3">

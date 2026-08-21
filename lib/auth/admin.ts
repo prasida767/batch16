@@ -6,6 +6,7 @@ export function getAdminEmails(): string[] {
     .filter(Boolean);
 }
 
+/** True only for emails listed in ADMIN_EMAILS — never for the rest of the league. */
 export function isAdminEmail(email: string | null | undefined): boolean {
   if (!email) return false;
   const allowed = getAdminEmails();

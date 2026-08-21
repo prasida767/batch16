@@ -60,4 +60,12 @@ describe("admin allowlist", () => {
     expect(isAdminEmail("nope@example.com")).toBe(false);
     process.env.ADMIN_EMAILS = prev;
   });
+
+  it("does not treat other league users as admin", () => {
+    const prev = process.env.ADMIN_EMAILS;
+    process.env.ADMIN_EMAILS = "owner@example.com";
+    expect(isAdminEmail("owner@example.com")).toBe(true);
+    expect(isAdminEmail("teammate@example.com")).toBe(false);
+    process.env.ADMIN_EMAILS = prev;
+  });
 });
