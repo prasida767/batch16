@@ -2,7 +2,8 @@ import "server-only";
 
 import { cache } from "react";
 import { eq, isNotNull } from "drizzle-orm";
-import { getDb, isDatabaseConfigured, managerAccounts, managers } from "@/lib/db";
+import { withTimeout } from "@/lib/async/timeout";
+import { getDb, isDatabaseConfigured, managerAccounts, managers, resetDbClient } from "@/lib/db";
 import { createClient } from "@/lib/supabase/server";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 import { isAdminEmail } from "@/lib/auth/admin";
@@ -17,10 +18,18 @@ export type VerifiedManager = {
 
 export const getAuthUser = cache(async () => {
   if (!isSupabaseConfigured()) return null;
-  const supabase = await createClient();
-  const { data, error } = await supabase.auth.getUser();
-  if (error || !data.user) return null;
-  return data.user;
+  try {
+    const supabase = await createClient();
+    const { data, error } = await withTimeout(
+      supabase.auth.getUser(),
+      8_000,
+      "auth-get-user",
+    );
+    if (error || !data.user) return null;
+    return data.user;
+  } catch {
+    return null;
+  }
 });
 
 /** DB lookup only — not React-cached (safe to race with a timeout). */
@@ -59,7 +68,16 @@ export const getVerifiedManager = cache(
   async (): Promise<VerifiedManager | null> => {
     const user = await getAuthUser();
     if (!user) return null;
-    return lookupVerifiedManagerForUser(user.id);
+    try {
+      return await withTimeout(
+        lookupVerifiedManagerForUser(user.id),
+        6_000,
+        "verify-manager",
+      );
+    } catch {
+      await resetDbClient().catch(() => undefined);
+      return null;
+    }
   },
 );
 

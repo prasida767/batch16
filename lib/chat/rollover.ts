@@ -115,20 +115,36 @@ export async function archiveChatGameweek(gameweek: number) {
     );
 }
 
+let lastRolloverAt = 0;
+let lastRolloverGw = 0;
+const ROLLOVER_THROTTLE_MS = 90_000;
+
 /**
  * When FPL advances to a new gameweek, archive previous active chat weeks.
- * Safe to call on every chat read/write. Request-deduped via React cache.
+ * Throttled across requests in this isolate — every chat GET used to hit FPL.
  */
 export const ensureChatGameweekRollover = cache(async (): Promise<number> => {
+  const now = Date.now();
+  if (
+    lastRolloverGw > 0 &&
+    now - lastRolloverAt < ROLLOVER_THROTTLE_MS
+  ) {
+    return lastRolloverGw;
+  }
+
   const current = await getCurrentGameweek();
   if (current == null || current <= 0) {
     const stored = await getStoredActiveGameweek();
-    return stored ?? 1;
+    lastRolloverGw = stored ?? 1;
+    lastRolloverAt = now;
+    return lastRolloverGw;
   }
 
   const stored = await getStoredActiveGameweek();
   if (stored == null) {
     await setStoredActiveGameweek(current);
+    lastRolloverGw = current;
+    lastRolloverAt = now;
     return current;
   }
 
@@ -147,6 +163,8 @@ export const ensureChatGameweekRollover = cache(async (): Promise<number> => {
     await setStoredActiveGameweek(current);
   }
 
+  lastRolloverGw = current;
+  lastRolloverAt = now;
   return current;
 });
 

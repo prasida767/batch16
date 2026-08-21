@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import { Suspense } from "react";
 import { Geist, Geist_Mono, Syne } from "next/font/google";
 import { SiteShell } from "@/components/layout/site-shell";
 import { ThemeProvider } from "@/components/providers/theme-provider";
@@ -65,7 +66,9 @@ export default function RootLayout({
           enableSystem
           disableTransitionOnChange
         >
-          <SiteShell>{children}</SiteShell>
+          <Suspense fallback={<div className="min-h-screen bg-background" />}>
+            <SiteShell>{children}</SiteShell>
+          </Suspense>
         </ThemeProvider>
       </body>
     </html>

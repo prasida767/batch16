@@ -1,24 +1,47 @@
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import * as schema from "./schema";
+import { serializePostgresClient } from "./serialize";
 
 type Db = ReturnType<typeof drizzle<typeof schema>>;
+type Sql = ReturnType<typeof postgres>;
 
 const globalForDb = globalThis as unknown as {
   db: Db | undefined;
-  sql: ReturnType<typeof postgres> | undefined;
+  sql: Sql | undefined;
 };
 
 export function isDatabaseConfigured() {
   return Boolean(process.env.DATABASE_URL);
 }
 
+function createSql(connectionString: string): Sql {
+  // Transaction pooler (:6543) is required on Vercel. Session/direct (:5432)
+  // exhausts the ~15-slot free-tier cap under concurrent SSR.
+  const sql = postgres(connectionString, {
+    prepare: false, // PgBouncer / Supavisor transaction mode
+    max: 1, // one backend per serverless isolate
+    fetch_types: false, // skip type catalog round-trip on connect
+    idle_timeout: 10,
+    max_lifetime: 60 * 2,
+    connect_timeout: 8,
+    ssl: "require",
+    // Session GUCs are ignored on :6543; harmless on session/direct.
+    connection: {
+      application_name: "batch16",
+      options: "-c statement_timeout=8000",
+    },
+  });
+
+  return serializePostgresClient(sql, () => {
+    void resetDbClient();
+  });
+}
+
 /**
- * Shared Drizzle client.
- *
- * On Vercel/serverless, each isolate must use a tiny pool (max: 1).
- * Prefer Supabase **Transaction** pooler (port 6543), not Session (5432) —
- * Session mode caps ~15 clients and fills up under concurrent SSR.
+ * Shared Drizzle client. Queries on this isolate are serialized so Promise.all
+ * cannot pipeline through Supavisor (that hang is what made tiny SELECTs run
+ * for minutes).
  */
 export function getDb(): Db {
   const connectionString = process.env.DATABASE_URL;
@@ -27,24 +50,7 @@ export function getDb(): Db {
   }
 
   if (!globalForDb.sql) {
-    // Transaction pooler (6543): connection-startup `statement_timeout` is ignored.
-    // Default max_pipeline (100) can wedge Supavisor when several queries are
-    // written before any response (Promise.all on max:1) — porsager/postgres#970.
-    // Use 1 (not 0): 0 skips `onexecute`, which breaks drizzle `db.transaction`
-    // with "Cannot set properties of undefined (setting 'onclose')".
-    globalForDb.sql = postgres(connectionString, {
-      prepare: false, // required for PgBouncer / Supavisor transaction mode
-      max: 1, // one connection per serverless isolate
-      // @ts-expect-error max_pipeline exists in postgres@3.4 but is missing from types
-      max_pipeline: 1,
-      idle_timeout: 20,
-      max_lifetime: 60 * 5,
-      connect_timeout: 5,
-      // Only applies on session/direct connections; harmless if ignored on :6543.
-      connection: {
-        options: "-c statement_timeout=5000",
-      },
-    });
+    globalForDb.sql = createSql(connectionString);
   }
   if (!globalForDb.db) {
     globalForDb.db = drizzle(globalForDb.sql, { schema });
@@ -63,7 +69,7 @@ export async function resetDbClient(): Promise<void> {
   globalForDb.db = undefined;
   if (!sql) return;
   try {
-    await sql.end({ timeout: 2 });
+    await sql.end({ timeout: 1 });
   } catch {
     // Connection may already be dead.
   }

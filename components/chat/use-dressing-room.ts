@@ -269,8 +269,15 @@ export function useDressingRoom(
     }
     setPanelOpen(readChatOpen());
     seenRef.current = readSeenId();
+  }, [enabled]);
+
+  useEffect(() => {
+    if (!enabled || !panelOpen) {
+      if (!panelOpen) setLoading(false);
+      return;
+    }
     void load();
-  }, [enabled, load]);
+  }, [enabled, panelOpen, load]);
 
   useEffect(() => {
     if (!enabled) return;
@@ -305,17 +312,18 @@ export function useDressingRoom(
     const startLive = () => {
       if (cancelled || channel) return;
 
-      channel = supabase.channel(CHAT_CHANNEL, {
+      const live = supabase.channel(CHAT_CHANNEL, {
         config: {
           presence: { key: me ? String(me.managerId) : "anon" },
           broadcast: { self: false },
         },
       });
-      channelRef.current = channel;
+      channel = live;
+      channelRef.current = live;
 
-      channel
-        .on("broadcast", { event: "dressing" }, ({ payload }) => {
-          const event = payload as BroadcastEvent;
+      live
+        .on("broadcast", { event: "dressing" }, ({ payload }: { payload: BroadcastEvent }) => {
+          const event = payload;
           if (event.type === "typing") {
             if (event.managerId === me?.managerId) return;
             setTyping((prev) => {
@@ -362,7 +370,7 @@ export function useDressingRoom(
             ),
           );
         })
-        .subscribe(async (status) => {
+        .subscribe(async (status: string) => {
           if (cancelled || status !== "SUBSCRIBED" || !channel) return;
           if (me) {
             await channel.track({

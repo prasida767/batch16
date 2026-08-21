@@ -6,10 +6,7 @@ import {
 import { LeagueHub } from "@/components/league/league-hub";
 import { getVerifiedManager } from "@/lib/auth/session";
 import { getActingManagerId } from "@/lib/challenges";
-import {
-  ensureDocumentaryEpisodesThrottled,
-  getLatestDocumentaryEpisode,
-} from "@/lib/documentary";
+import { getLatestDocumentaryEpisode } from "@/lib/documentary";
 import { getDashboardData } from "@/lib/league";
 import { getUpcomingFixtures } from "@/lib/fpl";
 import { isDatabaseConfigured } from "@/lib/db";
@@ -19,7 +16,6 @@ export const dynamic = "force-dynamic";
 async function loadFeaturedEpisode() {
   if (!isDatabaseConfigured()) return null;
   try {
-    await ensureDocumentaryEpisodesThrottled();
     const viewerId = await getActingManagerId();
     return await getLatestDocumentaryEpisode(viewerId);
   } catch {

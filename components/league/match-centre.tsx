@@ -208,6 +208,7 @@ export function MatchCentre({
     if (!active) return;
 
     const interval = window.setInterval(() => {
+      if (document.visibilityState !== "visible") return;
       void refresh();
     }, POLL_MS);
 

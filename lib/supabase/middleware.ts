@@ -66,9 +66,18 @@ export async function updateSession(request: NextRequest) {
     },
   });
 
+  let timedOut = false;
   const {
     data: { user },
-  } = await supabase.auth.getUser();
+  } = await Promise.race([
+    supabase.auth.getUser(),
+    new Promise<{ data: { user: null } }>((resolve) => {
+      setTimeout(() => {
+        timedOut = true;
+        resolve({ data: { user: null } });
+      }, 6_000);
+    }),
+  ]);
 
   if (user && pathname === "/") {
     const redirectUrl = request.nextUrl.clone();
@@ -77,7 +86,11 @@ export async function updateSession(request: NextRequest) {
     return NextResponse.redirect(redirectUrl);
   }
 
-  if (!user && !publicPath) {
+  const hasSessionCookie = request.cookies
+    .getAll()
+    .some((c) => c.name.startsWith("sb-") && c.name.includes("auth-token"));
+
+  if (!user && !publicPath && !(timedOut && hasSessionCookie)) {
     return unauthorized(request, pathname);
   }
 

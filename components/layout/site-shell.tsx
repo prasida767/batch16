@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { Suspense } from "react";
 import Link from "next/link";
 import { headers } from "next/headers";
 import { DressingRoomLayout } from "@/components/chat/dressing-room-layout";
@@ -10,6 +11,12 @@ import { PageTransition } from "@/components/motion/page-transition";
 import { NotificationProvider } from "@/components/notifications/notification-provider";
 import { getAuthStatus } from "@/lib/auth/session";
 import { getActiveGwWinnerCelebration } from "@/lib/league/celebration";
+
+async function CelebrationSlot() {
+  const celebration = await getActiveGwWinnerCelebration();
+  if (!celebration) return null;
+  return <CelebrationHost celebration={celebration} />;
+}
 
 async function currentPathname() {
   const h = await headers();
@@ -26,11 +33,6 @@ export async function SiteShell({ children }: { children: ReactNode }) {
   const path = await currentPathname();
   const cinematic =
     path === "/onboarding/recap" || path.startsWith("/onboarding/recap");
-
-  const celebration =
-    auth.signedIn && !cinematic
-      ? await getActiveGwWinnerCelebration()
-      : null;
 
   if (!auth.signedIn) {
     return (
@@ -72,7 +74,9 @@ export async function SiteShell({ children }: { children: ReactNode }) {
             to unlock chat, Baaji, and notifications.
           </div>
         ) : null}
-        {celebration ? <CelebrationHost celebration={celebration} /> : null}
+        <Suspense fallback={null}>
+          <CelebrationSlot />
+        </Suspense>
         <div className="flex min-h-0 flex-1 flex-col">
           <DressingRoomLayout
             managerId={managerId}
