@@ -1,7 +1,11 @@
-import { type NextRequest } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
 import { updateSession } from "@/lib/supabase/middleware";
 
 export async function middleware(request: NextRequest) {
+  const { pathname } = request.nextUrl;
+  if (pathname === "/penalties" || pathname.startsWith("/penalties/")) {
+    return new NextResponse(null, { status: 404 });
+  }
   return updateSession(request);
 }
 

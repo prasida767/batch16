@@ -13,7 +13,6 @@ import {
   Radio,
   ShieldCheck,
   Swords,
-  Target,
 } from "lucide-react";
 import { PageHeader } from "@/components/league/shared";
 import { FadeIn } from "@/components/motion/page-transition";
@@ -28,7 +27,6 @@ const TOC: TocItem[] = [
   { id: "live", label: "Live" },
   { id: "baaji", label: "Baaji" },
   { id: "rivalries", label: "Rivalries" },
-  { id: "penalties", label: "Penalties" },
   { id: "awards", label: "Awards" },
   { id: "documentary", label: "Documentary" },
   { id: "dressing-room", label: "Dressing Room" },
@@ -240,19 +238,6 @@ export function GuideContent() {
           </Section>
 
           <Section
-            id="penalties"
-            icon={<Target className="size-4" />}
-            title="Penalties"
-          >
-            <p>
-              A quick shootout game for when the FPL wait is killing you. Play
-              solo against the computer, or challenge another manager. In
-              multiplayer, both pick a direction each round — your choice stays
-              hidden until both lock in.
-            </p>
-          </Section>
-
-          <Section
             id="awards"
             icon={<Award className="size-4" />}
             title="Awards"
@@ -313,13 +298,13 @@ export function GuideContent() {
             <p>
               Extra points for being part of the league life — not FPL score.
               Posting in chat, putting up a Baaji, accepting one, wall posts,
-              penalties, and similar actions can earn a few points. Totals show
+              and similar actions can earn a few points. Totals show
               on the league table; admins can adjust if needed.
             </p>
             <p>
               Typical awards (subject to admin tweaks): creating/accepting a
               Baaji (+5), chat posts (+3), wall posts (+3), and smaller amounts
-              for penalties and other actions.
+              for other actions.
             </p>
           </Section>
 
@@ -350,7 +335,7 @@ export function GuideContent() {
               <strong className="font-medium text-foreground">Verified</strong>{" "}
               means you registered, signed in, and linked your manager (name +
               FPL team name). That unlocks Dressing Room, Baaji, wall posts,
-              penalties play, ratings, and notifications.
+              ratings, and notifications.
             </p>
             <p>
               Paid / Unpaid is separate — that&apos;s only about the entry fee,
@@ -399,7 +384,7 @@ export function GuideContent() {
               <HowTo
                 title="How activity points work"
                 steps={[
-                  "Be Verified and use the social features — chat, Baaji, wall, penalties, etc.",
+                  "Be Verified and use the social features — chat, Baaji, wall, etc.",
                   "Points appear next to your name on the league table.",
                   "They’re separate from FPL points and the prize pot math.",
                   "Admins can hand out or adjust points if something looks off.",

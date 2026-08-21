@@ -49,5 +49,4 @@ export const RATE_LIMITS = {
   taunt: { limit: 20, windowMs: 60_000 },
   baajiCreate: { limit: 10, windowMs: 60 * 60_000 },
   wallPost: { limit: 20, windowMs: 60_000 },
-  penaltyAction: { limit: 40, windowMs: 60_000 },
 } as const;

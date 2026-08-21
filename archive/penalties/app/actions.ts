@@ -1,5 +1,7 @@
-"use server";
-
+/**
+ * Archived — not a Next.js server action. Do not move this file under app/
+ * unless you are restoring Penalty Shootout.
+ */
 import { revalidatePath } from "next/cache";
 import type { ActionResult } from "@/lib/admin/shared";
 import { getActingManagerId } from "@/lib/challenges/identity";

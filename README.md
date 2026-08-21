@@ -14,7 +14,6 @@ Built for managers who already know each other. Not a public product.
 | **Live** | Match-centre style scores while the gameweek is on |
 | **Baaji** | Side bets between managers |
 | **Rivalries** | Who owns who, historically |
-| **Penalties** | Quick shootout game |
 | **Awards** | Weekly shout-outs |
 | **Documentary** | Auto episodes after finished gameweeks |
 | **Dressing Room** | League chat + taunts |

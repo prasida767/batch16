@@ -22,7 +22,7 @@ npm run security:check
 ## Auth model
 
 - **Signed in** → Supabase session (middleware)
-- **Verified** → `manager_accounts` link after claim — required for chat, Baaji, wall writes, penalties play, taunts, notifications
+- **Verified** → `manager_accounts` link after claim — required for chat, Baaji, wall writes, taunts, notifications
 - **Admin** → email in `ADMIN_EMAILS` — required for `/admin` and all mutating award/admin actions
 
 Unverified users can browse league data but cannot perform privileged writes.
