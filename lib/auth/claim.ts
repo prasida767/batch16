@@ -1,21 +1,47 @@
 import "server-only";
 
-import { and, eq, isNotNull } from "drizzle-orm";
+import { eq, isNotNull } from "drizzle-orm";
 import { getDb, managerAccounts, managers } from "@/lib/db";
-import { fetchManagerEntry } from "@/lib/fpl";
-import { canonicalKeyFromName } from "@/lib/history/names";
+import {
+  fetchAllClassicLeagueStandings,
+  fetchManagerEntry,
+  getBootstrapStatic,
+  getLeagueId,
+  leagueRosterRows,
+} from "@/lib/fpl";
 import {
   namesMatchForClaim,
-  normalizeTeamName,
+  teamNamesMatch,
   validateClaimInputs,
 } from "@/lib/auth/claim-match";
 import { getAuthUser } from "@/lib/auth/session";
 import { defaultAvatarVariant, CLUB_DEFINITIONS } from "@/lib/avatars/clubs";
-import { getBootstrapStatic } from "@/lib/fpl";
+
+type RosterHint = { playerName: string; teamName: string };
+
+async function loadRosterByEntry(): Promise<Map<number, RosterHint>> {
+  const leagueId = getLeagueId();
+  if (!leagueId) return new Map();
+  try {
+    const standings = await fetchAllClassicLeagueStandings(leagueId);
+    const map = new Map<number, RosterHint>();
+    for (const row of leagueRosterRows(standings)) {
+      map.set(row.entry, {
+        playerName: row.player_name,
+        teamName: row.entry_name,
+      });
+    }
+    return map;
+  } catch (error) {
+    console.error("[claim] League standings unavailable", error);
+    return new Map();
+  }
+}
 
 /**
  * Match a league manager by real name + FPL team name (entry name).
- * Both must match; team name is checked against live FPL data.
+ * Prefers classic-league standings (same data as the table) so a blocked
+ * `/entry/{id}` fetch cannot reject a correct claim.
  */
 export async function findManagerForClaim(args: {
   fullName: string;
@@ -31,80 +57,99 @@ export async function findManagerForClaim(args: {
     return { kind: "error", message: inputError };
   }
 
-  const key = canonicalKeyFromName(fullName)!;
-
   const db = getDb();
-  let candidates = await db
+  const candidates = await db
     .select({
       id: managers.id,
       displayName: managers.displayName,
       name: managers.name,
-      canonicalKey: managers.canonicalKey,
       fplEntryId: managers.fplEntryId,
     })
     .from(managers)
-    .where(and(eq(managers.canonicalKey, key), isNotNull(managers.fplEntryId)));
+    .where(isNotNull(managers.fplEntryId));
 
   if (candidates.length === 0) {
-    const all = await db
-      .select({
-        id: managers.id,
-        displayName: managers.displayName,
-        name: managers.name,
-        canonicalKey: managers.canonicalKey,
-        fplEntryId: managers.fplEntryId,
-      })
-      .from(managers)
-      .where(isNotNull(managers.fplEntryId));
-
-    candidates = all.filter(
-      (row) =>
-        namesMatchForClaim(row.displayName, fullName) ||
-        namesMatchForClaim(row.name, fullName),
-    );
-    if (candidates.length === 0) {
-      return {
-        kind: "error",
-        message:
-          "No league manager matched that name. Use the exact name from the standings.",
-      };
-    }
+    return {
+      kind: "error",
+      message:
+        "No league manager matched that name. Use the exact name from the standings.",
+    };
   }
 
-  const teamKey = normalizeTeamName(teamName);
+  const roster = await loadRosterByEntry();
   const matches: {
     managerId: number;
     displayName: string;
     teamName: string;
   }[] = [];
+  let nameHitCount = 0;
+  let sawTeamData = false;
 
   for (const candidate of candidates) {
     if (candidate.fplEntryId == null) continue;
-    try {
-      const entry = await fetchManagerEntry(candidate.fplEntryId);
-      const fplPerson = `${entry.player_first_name} ${entry.player_last_name}`.trim();
-      const personOk =
-        namesMatchForClaim(candidate.displayName, fullName) ||
-        namesMatchForClaim(candidate.name, fullName) ||
-        namesMatchForClaim(fplPerson, fullName);
-      const teamOk = normalizeTeamName(entry.name) === teamKey;
-      if (personOk && teamOk) {
-        matches.push({
-          managerId: candidate.id,
-          displayName: candidate.displayName,
-          teamName: entry.name,
-        });
+    const hint = roster.get(candidate.fplEntryId) ?? null;
+
+    const personOk =
+      namesMatchForClaim(candidate.displayName, fullName) ||
+      namesMatchForClaim(candidate.name, fullName) ||
+      (hint != null && namesMatchForClaim(hint.playerName, fullName));
+
+    if (!personOk) continue;
+    nameHitCount += 1;
+
+    let resolvedTeam = hint?.teamName ?? null;
+    if (resolvedTeam == null) {
+      try {
+        const entry = await fetchManagerEntry(candidate.fplEntryId);
+        resolvedTeam = entry.name;
+      } catch {
+        // Entry endpoint is often blocked; standings / unique name still work.
       }
-    } catch {
-      // Skip unreachable FPL entries
+    }
+
+    if (resolvedTeam) {
+      sawTeamData = true;
+      if (!teamNamesMatch(resolvedTeam, teamName)) continue;
+    } else {
+      continue;
+    }
+
+    matches.push({
+      managerId: candidate.id,
+      displayName: candidate.displayName,
+      teamName: resolvedTeam,
+    });
+  }
+
+  if (matches.length === 0 && nameHitCount === 1 && !sawTeamData) {
+    const unique = candidates.find((candidate) => {
+      if (candidate.fplEntryId == null) return false;
+      return (
+        namesMatchForClaim(candidate.displayName, fullName) ||
+        namesMatchForClaim(candidate.name, fullName)
+      );
+    });
+    if (unique) {
+      matches.push({
+        managerId: unique.id,
+        displayName: unique.displayName,
+        teamName,
+      });
     }
   }
 
   if (matches.length === 0) {
+    if (nameHitCount === 0) {
+      return {
+        kind: "error",
+        message:
+          "No league manager matched that name. Use the name from the standings (first and last).",
+      };
+    }
     return {
       kind: "error",
       message:
-        "Name matched a manager, but the FPL team name didn't. Check the team name on FPL (not your login email).",
+        "Name matched a manager, but the FPL team name didn't. Use the team name from the league table, not your email or club.",
     };
   }
 

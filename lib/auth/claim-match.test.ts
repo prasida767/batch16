@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   namesMatchForClaim,
   normalizeTeamName,
+  teamNamesMatch,
   validateClaimInputs,
 } from "@/lib/auth/claim-match";
 import { isAdminEmail, getAdminEmails } from "@/lib/auth/admin";
@@ -24,10 +25,22 @@ describe("claim matching", () => {
     expect(namesMatchForClaim("Abhishek Gupta", "Someone Else")).toBe(false);
   });
 
+  it("matches first name or reversed order against a full name", () => {
+    expect(namesMatchForClaim("Prasiddha Khadka", "Prasiddha")).toBe(true);
+    expect(namesMatchForClaim("Prasiddha Khadka", "Khadka Prasiddha")).toBe(
+      true,
+    );
+    expect(namesMatchForClaim("Abhishek Gupta", "Abi")).toBe(false);
+  });
+
   it("normalizes team names for comparison", () => {
     expect(normalizeTeamName("  Batch United!! ")).toBe(
       normalizeTeamName("batch united"),
     );
+    expect(teamNamesMatch("Gunners FC", "Gunners")).toBe(true);
+    expect(teamNamesMatch("The Gunners!!", "the gunners")).toBe(true);
+    expect(teamNamesMatch("FC", "Arsenal FC")).toBe(false);
+    expect(teamNamesMatch("Batch United", "Someone Else FC")).toBe(false);
   });
 });
 

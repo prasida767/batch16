@@ -75,7 +75,8 @@ export function ClaimForm({
               autoComplete="name"
             />
             <p className="text-xs text-muted-foreground">
-              Same spelling as in the league standings.
+              First and last name as in the standings. First name alone is OK
+              if nobody else shares it.
             </p>
           </div>
           <div className="space-y-2">
@@ -88,7 +89,8 @@ export function ClaimForm({
               autoComplete="off"
             />
             <p className="text-xs text-muted-foreground">
-              The fantasy team name in the league — not your club or email.
+              Your fantasy team name from the league table — punctuation and
+              &ldquo;FC&rdquo; don&apos;t have to match exactly.
             </p>
           </div>
 
