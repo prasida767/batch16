@@ -126,22 +126,21 @@ async function loadSeasonSummaries(): Promise<PastSeasonSummary[]> {
 
   if (seasonRows.length === 0) return [];
 
-  const [weeklyCounts, prizeCounts] = await Promise.all([
-    db
-      .select({
-        seasonId: weeklyWinners.seasonId,
-        value: count(),
-      })
-      .from(weeklyWinners)
-      .groupBy(weeklyWinners.seasonId),
-    db
-      .select({
-        seasonId: seasonPrizes.seasonId,
-        value: count(),
-      })
-      .from(seasonPrizes)
-      .groupBy(seasonPrizes.seasonId),
-  ]);
+  // Sequential: max:1 + transaction pooler cannot safely pipeline.
+  const weeklyCounts = await db
+    .select({
+      seasonId: weeklyWinners.seasonId,
+      value: count(),
+    })
+    .from(weeklyWinners)
+    .groupBy(weeklyWinners.seasonId);
+  const prizeCounts = await db
+    .select({
+      seasonId: seasonPrizes.seasonId,
+      value: count(),
+    })
+    .from(seasonPrizes)
+    .groupBy(seasonPrizes.seasonId);
 
   const weeklyMap = new Map(
     weeklyCounts.map((row) => [row.seasonId, row.value]),
@@ -164,29 +163,27 @@ async function loadSeasonDetail(
 ): Promise<PastSeasonDetail> {
   const db = getDb();
 
-  const [weeklyRows, prizeRows] = await Promise.all([
-    db
-      .select({
-        gameweek: weeklyWinners.gameweek,
-        points: weeklyWinners.points,
-        managerId: weeklyWinners.managerId,
-        managerName: managers.displayName,
-      })
-      .from(weeklyWinners)
-      .innerJoin(managers, eq(weeklyWinners.managerId, managers.id))
-      .where(eq(weeklyWinners.seasonId, seasonId))
-      .orderBy(asc(weeklyWinners.gameweek)),
-    db
-      .select({
-        prizeType: seasonPrizes.prizeType,
-        amount: seasonPrizes.amount,
-        managerId: seasonPrizes.managerId,
-        managerName: managers.displayName,
-      })
-      .from(seasonPrizes)
-      .innerJoin(managers, eq(seasonPrizes.managerId, managers.id))
-      .where(eq(seasonPrizes.seasonId, seasonId)),
-  ]);
+  const weeklyRows = await db
+    .select({
+      gameweek: weeklyWinners.gameweek,
+      points: weeklyWinners.points,
+      managerId: weeklyWinners.managerId,
+      managerName: managers.displayName,
+    })
+    .from(weeklyWinners)
+    .innerJoin(managers, eq(weeklyWinners.managerId, managers.id))
+    .where(eq(weeklyWinners.seasonId, seasonId))
+    .orderBy(asc(weeklyWinners.gameweek));
+  const prizeRows = await db
+    .select({
+      prizeType: seasonPrizes.prizeType,
+      amount: seasonPrizes.amount,
+      managerId: seasonPrizes.managerId,
+      managerName: managers.displayName,
+    })
+    .from(seasonPrizes)
+    .innerJoin(managers, eq(seasonPrizes.managerId, managers.id))
+    .where(eq(seasonPrizes.seasonId, seasonId));
 
   prizeRows.sort((a, b) => prizeSortKey(a.prizeType) - prizeSortKey(b.prizeType));
 
@@ -278,25 +275,23 @@ export const getPastSeasonsStats = cache(
 
       if (seasonRows.length === 0) return { kind: "empty" };
 
-      const [weeklyRows, prizeRows] = await Promise.all([
-        db
-          .select({
-            seasonId: weeklyWinners.seasonId,
-            managerId: weeklyWinners.managerId,
-            managerName: managers.displayName,
-          })
-          .from(weeklyWinners)
-          .innerJoin(managers, eq(weeklyWinners.managerId, managers.id)),
-        db
-          .select({
-            seasonId: seasonPrizes.seasonId,
-            prizeType: seasonPrizes.prizeType,
-            managerId: seasonPrizes.managerId,
-            managerName: managers.displayName,
-          })
-          .from(seasonPrizes)
-          .innerJoin(managers, eq(seasonPrizes.managerId, managers.id)),
-      ]);
+      const weeklyRows = await db
+        .select({
+          seasonId: weeklyWinners.seasonId,
+          managerId: weeklyWinners.managerId,
+          managerName: managers.displayName,
+        })
+        .from(weeklyWinners)
+        .innerJoin(managers, eq(weeklyWinners.managerId, managers.id));
+      const prizeRows = await db
+        .select({
+          seasonId: seasonPrizes.seasonId,
+          prizeType: seasonPrizes.prizeType,
+          managerId: seasonPrizes.managerId,
+          managerName: managers.displayName,
+        })
+        .from(seasonPrizes)
+        .innerJoin(managers, eq(seasonPrizes.managerId, managers.id));
 
       if (weeklyRows.length === 0 && prizeRows.length === 0) {
         return { kind: "empty" };

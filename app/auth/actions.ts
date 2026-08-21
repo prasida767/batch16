@@ -3,13 +3,18 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import type { ActionResult } from "@/lib/admin/shared";
+import { withTimeout } from "@/lib/async/timeout";
 import { claimManagerForCurrentUser } from "@/lib/auth/claim";
-import { getVerifiedManager } from "@/lib/auth/session";
-import { getSeasonRecapPayload } from "@/lib/onboarding/recap";
-import { hasSeenSeasonRecap } from "@/lib/onboarding/seen";
+import {
+  getVerifiedManager,
+  lookupVerifiedManagerForUser,
+} from "@/lib/auth/session";
 import { createClient } from "@/lib/supabase/server";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
-import { isDatabaseConfigured } from "@/lib/db";
+import { isDatabaseConfigured, resetDbClient } from "@/lib/db";
+
+const AUTH_TIMEOUT_MS = 12_000;
+const VERIFY_TIMEOUT_MS = 4_000;
 
 function revalidateAuthPaths() {
   revalidatePath("/");
@@ -36,21 +41,32 @@ function recapRedirect(next: string | null, force = false) {
   return `${base}${join}next=${encodeURIComponent(next)}`;
 }
 
-async function maybeRecapPath(
-  managerId: number,
-  displayName: string,
+/**
+ * After password auth: decide claim vs league without blocking forever on Postgres.
+ * Skips the heavy season-recap fetch on the critical path (recap is available from claim).
+ */
+async function resolvePostLoginPath(
+  userId: string,
   next: string | null,
 ): Promise<string> {
-  if (!isDatabaseConfigured()) return next ?? "/league";
+  const league = next ?? "/league";
+  const claim = next
+    ? `/auth/claim?next=${encodeURIComponent(next)}`
+    : "/auth/claim";
+
+  if (!isDatabaseConfigured()) return claim;
+
   try {
-    const payload = await getSeasonRecapPayload({ managerId, displayName });
-    if (!payload) return next ?? "/league";
-    if (await hasSeenSeasonRecap(payload.seasonLabel, managerId)) {
-      return next ?? "/league";
-    }
-    return recapRedirect(next);
+    const verified = await withTimeout(
+      lookupVerifiedManagerForUser(userId),
+      VERIFY_TIMEOUT_MS,
+      "verify-manager",
+    );
+    return verified ? league : claim;
   } catch {
-    return next ?? "/league";
+    await resetDbClient().catch(() => undefined);
+    // Auth already succeeded — never trap the user on the login button.
+    return league;
   }
 }
 
@@ -147,29 +163,46 @@ export async function loginAction(
   }
 
   const supabase = await createClient();
-  const { error } = await supabase.auth.signInWithPassword({ email, password });
-  if (error) {
-    return { ok: false, message: error.message };
+
+  let authError: { message: string } | null = null;
+  let userId: string | null = null;
+  try {
+    const result = await withTimeout(
+      supabase.auth.signInWithPassword({ email, password }),
+      AUTH_TIMEOUT_MS,
+      "sign-in",
+    );
+    authError = result.error;
+    userId = result.data.user?.id ?? null;
+  } catch (error) {
+    return {
+      ok: false,
+      message:
+        error instanceof Error
+          ? error.message
+          : "Sign-in timed out. Try again in a moment.",
+    };
+  }
+
+  if (authError) {
+    return { ok: false, message: authError.message };
   }
 
   revalidateAuthPaths();
 
-  const verified = await getVerifiedManager();
-  if (verified) {
-    redirect(
-      await maybeRecapPath(
-        verified.managerId,
-        verified.displayName,
-        next,
-      ),
-    );
+  // Prefer user id from sign-in; fall back to getUser if needed.
+  if (!userId) {
+    const { data } = await supabase.auth.getUser();
+    userId = data.user?.id ?? null;
   }
 
-  redirect(
-    next
+  const dest = userId
+    ? await resolvePostLoginPath(userId, next)
+    : next
       ? `/auth/claim?next=${encodeURIComponent(next)}`
-      : "/auth/claim",
-  );
+      : "/auth/claim";
+
+  redirect(dest);
 }
 
 export async function claimManagerAction(

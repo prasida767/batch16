@@ -53,4 +53,20 @@ export function getDb(): Db {
   return globalForDb.db;
 }
 
+/**
+ * Drop the cached postgres.js client. Call after a timed-out query so the next
+ * request does not reuse a wedged single connection (max: 1).
+ */
+export async function resetDbClient(): Promise<void> {
+  const sql = globalForDb.sql;
+  globalForDb.sql = undefined;
+  globalForDb.db = undefined;
+  if (!sql) return;
+  try {
+    await sql.end({ timeout: 2 });
+  } catch {
+    // Connection may already be dead.
+  }
+}
+
 export * from "./schema";

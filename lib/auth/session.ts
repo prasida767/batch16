@@ -23,35 +23,43 @@ export const getAuthUser = cache(async () => {
   return data.user;
 });
 
+/** DB lookup only — not React-cached (safe to race with a timeout). */
+export async function lookupVerifiedManagerForUser(
+  userId: string,
+): Promise<VerifiedManager | null> {
+  if (!isDatabaseConfigured()) return null;
+
+  const db = getDb();
+  const [row] = await db
+    .select({
+      userId: managerAccounts.userId,
+      email: managerAccounts.email,
+      managerId: managerAccounts.managerId,
+      displayName: managers.displayName,
+      fplEntryId: managers.fplEntryId,
+    })
+    .from(managerAccounts)
+    .innerJoin(managers, eq(managers.id, managerAccounts.managerId))
+    .where(eq(managerAccounts.userId, userId))
+    .limit(1);
+
+  if (!row || row.fplEntryId == null) return null;
+
+  return {
+    userId: row.userId,
+    email: row.email,
+    managerId: row.managerId,
+    displayName: row.displayName,
+    fplEntryId: row.fplEntryId,
+  };
+}
+
 /** Session user linked to a verified league manager, or null. */
 export const getVerifiedManager = cache(
   async (): Promise<VerifiedManager | null> => {
     const user = await getAuthUser();
-    if (!user || !isDatabaseConfigured()) return null;
-
-    const db = getDb();
-    const [row] = await db
-      .select({
-        userId: managerAccounts.userId,
-        email: managerAccounts.email,
-        managerId: managerAccounts.managerId,
-        displayName: managers.displayName,
-        fplEntryId: managers.fplEntryId,
-      })
-      .from(managerAccounts)
-      .innerJoin(managers, eq(managers.id, managerAccounts.managerId))
-      .where(eq(managerAccounts.userId, user.id))
-      .limit(1);
-
-    if (!row || row.fplEntryId == null) return null;
-
-    return {
-      userId: row.userId,
-      email: row.email,
-      managerId: row.managerId,
-      displayName: row.displayName,
-      fplEntryId: row.fplEntryId,
-    };
+    if (!user) return null;
+    return lookupVerifiedManagerForUser(user.id);
   },
 );
 

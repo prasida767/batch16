@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useActionState } from "react";
+import { useActionState, useEffect, useState } from "react";
 import { loginAction } from "@/app/auth/actions";
 import type { ActionResult } from "@/lib/admin/shared";
 import { Button } from "@/components/ui/button";
@@ -16,6 +16,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 
+const CLIENT_WATCHDOG_MS = 20_000;
+
 export function LoginForm({
   errorHint,
   successHint,
@@ -29,6 +31,20 @@ export function LoginForm({
     ActionResult | null,
     FormData
   >(loginAction, null);
+  const [watchdog, setWatchdog] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!pending) {
+      setWatchdog(null);
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      setWatchdog(
+        "Sign-in is taking too long. Check your connection, or refresh and try again.",
+      );
+    }, CLIENT_WATCHDOG_MS);
+    return () => window.clearTimeout(timer);
+  }, [pending]);
 
   return (
     <Card className="mx-auto w-full max-w-md">
@@ -82,6 +98,9 @@ export function LoginForm({
             >
               {state.message}
             </p>
+          ) : null}
+          {watchdog ? (
+            <p className="text-sm text-destructive">{watchdog}</p>
           ) : null}
 
           <Button type="submit" className="w-full" disabled={pending}>
