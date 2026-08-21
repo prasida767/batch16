@@ -2,6 +2,7 @@ export {
   FPL_BASE_URL,
   FPL_CACHE,
   FPL_CACHE_TAGS,
+  getFplBaseUrl,
   getLeagueId,
   requireLeagueId,
 } from "./config";

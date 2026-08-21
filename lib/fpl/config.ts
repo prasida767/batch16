@@ -1,5 +1,11 @@
 export const FPL_BASE_URL = "https://fantasy.premierleague.com/api";
 
+/** Optional Cloudflare Worker (or other) proxy that forwards to FPL. */
+export function getFplBaseUrl(): string {
+  const proxy = process.env.FPL_PROXY_BASE_URL?.trim().replace(/\/$/, "");
+  return proxy || FPL_BASE_URL;
+}
+
 /** Cache lifetimes in seconds. Tune per endpoint — live data stays short. */
 export const FPL_CACHE = {
   bootstrap: 600,
