@@ -1,6 +1,6 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
+import { revalidatePath, revalidateTag } from "next/cache";
 import { redirect } from "next/navigation";
 import type { ActionResult } from "@/lib/admin/shared";
 import { withTimeout } from "@/lib/async/timeout";
@@ -12,11 +12,13 @@ import {
 import { createClient } from "@/lib/supabase/server";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 import { isDatabaseConfigured, resetDbClient } from "@/lib/db";
+import { AUTH_MANAGER_CACHE_TAG } from "@/lib/auth/shell";
 
 const AUTH_TIMEOUT_MS = 12_000;
 const VERIFY_TIMEOUT_MS = 4_000;
 
 function revalidateAuthPaths() {
+  revalidateTag(AUTH_MANAGER_CACHE_TAG);
   revalidatePath("/");
   revalidatePath("/league");
   revalidatePath("/challenges");

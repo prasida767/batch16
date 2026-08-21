@@ -104,9 +104,22 @@ export async function updateSession(request: NextRequest) {
     }
   }
 
-  // Expose pathname to server components (cinematic shell, etc.)
+  // Identity for the RSC shell — overwrite any client-supplied values.
   const requestHeaders = new Headers(request.headers);
+  requestHeaders.delete("x-signed-in");
+  requestHeaders.delete("x-user-id");
+  requestHeaders.delete("x-user-email");
+  requestHeaders.delete("x-is-admin");
   requestHeaders.set("x-pathname", pathname);
+  const sessionOk = Boolean(user) || (timedOut && hasSessionCookie);
+  requestHeaders.set("x-signed-in", sessionOk ? "1" : "0");
+  if (user?.id) requestHeaders.set("x-user-id", user.id);
+  if (user?.email) {
+    requestHeaders.set("x-user-email", user.email);
+    requestHeaders.set("x-is-admin", isAdminEmail(user.email) ? "1" : "0");
+  } else {
+    requestHeaders.set("x-is-admin", "0");
+  }
   const withPath = NextResponse.next({
     request: { headers: requestHeaders },
   });

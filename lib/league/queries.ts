@@ -122,7 +122,7 @@ const getCachedLeagueSnapshotCore = (leagueId: number) =>
       }
     },
     ["league-snapshot-v2", String(leagueId)],
-    { revalidate: 60, tags: ["league-snapshot", "fpl"] },
+    { revalidate: 90, tags: ["league-snapshot", "fpl"] },
   )();
 
 export const getLeagueSnapshot = cache(

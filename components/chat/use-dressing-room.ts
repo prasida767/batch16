@@ -1,9 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { RealtimeChannel } from "@supabase/supabase-js";
 import {
-  CHAT_CHANNEL,
   type ChatMessageView,
   type ChatPresencePayload,
 } from "@/lib/chat/types";
@@ -13,8 +11,6 @@ import {
   type TauntActionId,
   type TauntEvent,
 } from "@/lib/chat/taunts";
-import { createClient } from "@/lib/supabase/client";
-import { isSupabaseConfigured } from "@/lib/supabase/config";
 
 type ChatOk = {
   kind: "ok";
@@ -38,7 +34,7 @@ const TAUNT_COOLDOWN_MS = 1200;
 
 const SEEN_KEY = "batch16_dressing_room_seen";
 const OPEN_KEY = "batch16_dressing_room_open";
-const FALLBACK_POLL_MS = 25_000;
+const FALLBACK_POLL_MS = 8_000;
 const BACKGROUND_POLL_MS = 90_000;
 
 function upsertMessage(list: ChatMessageView[], message: ChatMessageView) {
@@ -96,7 +92,6 @@ export function useDressingRoom(
     Record<number, TauntActionId>
   >({});
 
-  const channelRef = useRef<RealtimeChannel | null>(null);
   const openRef = useRef(true);
   const seenRef = useRef(0);
   const lastIdRef = useRef(0);
@@ -203,16 +198,8 @@ export function useDressingRoom(
     [markSpeaking, me?.managerId],
   );
 
-  const broadcast = useCallback((event: BroadcastEvent) => {
-    const ch = channelRef.current;
-    if (!ch) return;
-    void ch
-      .send({
-        type: "broadcast",
-        event: "dressing",
-        payload: event,
-      })
-      .catch(() => undefined);
+  const broadcast = useCallback((_event: BroadcastEvent) => {
+    // Poll-only: other clients pick up messages on the 8s interval.
   }, []);
 
   const load = useCallback(async (afterId?: number) => {
@@ -287,101 +274,22 @@ export function useDressingRoom(
     }
   }, [enabled, panelOpen, messages, markSeen]);
 
-  // Realtime + fast poll only while the Dressing Room is open and the tab is visible.
+  // Poll while the Dressing Room is open (no free-tier Realtime sockets).
   useEffect(() => {
-    if (!enabled || !panelOpen || !isSupabaseConfigured()) return;
+    if (!enabled || !panelOpen) return;
 
-    const supabase = createClient();
     let cancelled = false;
     let poll: number | undefined;
-    let channel: RealtimeChannel | null = null;
 
     const stopLive = () => {
       if (poll != null) {
         window.clearInterval(poll);
         poll = undefined;
       }
-      if (channel) {
-        channelRef.current = null;
-        void supabase.removeChannel(channel);
-        channel = null;
-      }
-      setOnline([]);
     };
 
     const startLive = () => {
-      if (cancelled || channel) return;
-
-      const live = supabase.channel(CHAT_CHANNEL, {
-        config: {
-          presence: { key: me ? String(me.managerId) : "anon" },
-          broadcast: { self: false },
-        },
-      });
-      channel = live;
-      channelRef.current = live;
-
-      live
-        .on("broadcast", { event: "dressing" }, ({ payload }: { payload: BroadcastEvent }) => {
-          const event = payload;
-          if (event.type === "typing") {
-            if (event.managerId === me?.managerId) return;
-            setTyping((prev) => {
-              if (prev.some((t) => t.managerId === event.managerId)) return prev;
-              return [
-                ...prev,
-                {
-                  managerId: event.managerId,
-                  displayName: event.displayName,
-                },
-              ];
-            });
-            const existing = typingTimers.current.get(event.managerId);
-            if (existing) clearTimeout(existing);
-            typingTimers.current.set(
-              event.managerId,
-              setTimeout(() => {
-                setTyping((prev) =>
-                  prev.filter((t) => t.managerId !== event.managerId),
-                );
-                typingTimers.current.delete(event.managerId);
-              }, 2200),
-            );
-            return;
-          }
-          if (event.type === "taunt") {
-            applyTaunt(event.taunt);
-            return;
-          }
-          applyIncoming(event.message, event.type);
-        })
-        .on("presence", { event: "sync" }, () => {
-          if (!channel) return;
-          const state = channel.presenceState();
-          const map = new Map<number, ChatPresencePayload>();
-          for (const metas of Object.values(state)) {
-            for (const raw of metas as unknown as ChatPresencePayload[]) {
-              if (raw?.managerId != null) map.set(raw.managerId, raw);
-            }
-          }
-          setOnline(
-            [...map.values()].sort((a, b) =>
-              a.displayName.localeCompare(b.displayName),
-            ),
-          );
-        })
-        .subscribe(async (status: string) => {
-          if (cancelled || status !== "SUBSCRIBED" || !channel) return;
-          if (me) {
-            await channel.track({
-              managerId: me.managerId,
-              displayName: me.displayName,
-              avatarUrl: me.avatarUrl,
-              onlineAt: Date.now(),
-            } satisfies ChatPresencePayload);
-          }
-        });
-
+      if (cancelled || poll != null) return;
       poll = window.setInterval(() => {
         if (document.visibilityState !== "visible") return;
         const last = lastIdRef.current;
@@ -415,16 +323,7 @@ export function useDressingRoom(
       hitTimers.current.clear();
       stopLive();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- rebind when identity / open changes
-  }, [
-    enabled,
-    panelOpen,
-    me?.managerId,
-    me?.displayName,
-    applyIncoming,
-    applyTaunt,
-    load,
-  ]);
+  }, [enabled, panelOpen, load]);
 
   // Slow unread poll while the panel is closed (no realtime sockets).
   useEffect(() => {

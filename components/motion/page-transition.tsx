@@ -19,7 +19,7 @@ export function PageTransition({ children }: { children: ReactNode }) {
       key={pathname}
       initial={reduce ? false : { opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.38, ease: easeOutSoft }}
+      transition={{ duration: 0.16, ease: easeOutSoft }}
       className="min-w-0"
     >
       {children}

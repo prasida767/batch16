@@ -2,7 +2,7 @@ import { DressingRoomPanel } from "@/components/chat/dressing-room-panel";
 import { getAuthStatus } from "@/lib/auth/session";
 import { redirect } from "next/navigation";
 
-export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 export default async function DressingRoomPage() {
   const auth = await getAuthStatus();

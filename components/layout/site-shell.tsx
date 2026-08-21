@@ -9,7 +9,7 @@ import { PublicHeader } from "@/components/layout/public-header";
 import { SiteFooter } from "@/components/layout/site-footer";
 import { PageTransition } from "@/components/motion/page-transition";
 import { NotificationProvider } from "@/components/notifications/notification-provider";
-import { getAuthStatus } from "@/lib/auth/session";
+import { getShellAuth } from "@/lib/auth/shell";
 import { getActiveGwWinnerCelebration } from "@/lib/league/celebration";
 
 async function CelebrationSlot() {
@@ -24,7 +24,7 @@ async function currentPathname() {
 }
 
 export async function SiteShell({ children }: { children: ReactNode }) {
-  const auth = await getAuthStatus();
+  const auth = await getShellAuth();
   const authLabel =
     auth.manager?.displayName ?? (auth.signedIn ? auth.email : null);
   const managerId = auth.manager?.managerId ?? null;

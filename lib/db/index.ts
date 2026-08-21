@@ -15,18 +15,26 @@ export function isDatabaseConfigured() {
   return Boolean(process.env.DATABASE_URL);
 }
 
+function isSupabaseTransactionPooler(connectionString: string): boolean {
+  try {
+    const url = new URL(connectionString);
+    return url.port === "6543" || url.hostname.includes("pooler.supabase.com");
+  } catch {
+    return false;
+  }
+}
+
 function createSql(connectionString: string): Sql {
-  // Transaction pooler (:6543) is required on Vercel. Session/direct (:5432)
-  // exhausts the ~15-slot free-tier cap under concurrent SSR.
+  const pooler = isSupabaseTransactionPooler(connectionString);
   const sql = postgres(connectionString, {
-    prepare: false, // PgBouncer / Supavisor transaction mode
-    max: 1, // one backend per serverless isolate
-    fetch_types: false, // skip type catalog round-trip on connect
+    // Transaction-mode poolers cannot use prepared statements.
+    prepare: !pooler,
+    max: 1, // one backend per Vercel isolate
+    fetch_types: false,
     idle_timeout: 10,
     max_lifetime: 60 * 2,
     connect_timeout: 8,
     ssl: "require",
-    // Session GUCs are ignored on :6543; harmless on session/direct.
     connection: {
       application_name: "batch16",
       options: "-c statement_timeout=8000",
@@ -40,8 +48,7 @@ function createSql(connectionString: string): Sql {
 
 /**
  * Shared Drizzle client. Queries on this isolate are serialized so Promise.all
- * cannot pipeline through Supavisor (that hang is what made tiny SELECTs run
- * for minutes).
+ * cannot pipeline (needed for Supabase poolers; harmless on Railway/direct).
  */
 export function getDb(): Db {
   const connectionString = process.env.DATABASE_URL;
@@ -59,10 +66,6 @@ export function getDb(): Db {
   return globalForDb.db;
 }
 
-/**
- * Drop the cached postgres.js client. Call after a timed-out query so the next
- * request does not reuse a wedged single connection (max: 1).
- */
 export async function resetDbClient(): Promise<void> {
   const sql = globalForDb.sql;
   globalForDb.sql = undefined;

@@ -7,8 +7,7 @@ import { MatchCentre } from "@/components/league/match-centre";
 import { getVerifiedManager } from "@/lib/auth/session";
 import { getLiveStandingsPayload } from "@/lib/league";
 
-export const dynamic = "force-dynamic";
-export const revalidate = 0;
+export const revalidate = 30;
 
 export default async function LiveMatchCentrePage() {
   const [result, me] = await Promise.all([

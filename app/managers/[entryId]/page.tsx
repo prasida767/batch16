@@ -27,7 +27,7 @@ import { chipLabel, getManagerDetail } from "@/lib/league";
 import { getManagerRivalryProfile } from "@/lib/rivalries";
 import { ManagerRivalrySection } from "@/components/rivalries/manager-rivalry-section";
 
-export const dynamic = "force-dynamic";
+export const revalidate = 60;
 
 export default async function ManagerDetailPage({
   params,
