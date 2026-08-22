@@ -5,7 +5,11 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { ChevronRight, Maximize2, MessageSquareText, Shirt, X } from "lucide-react";
-import { DressingRoomProvider, useDressingRoomContext } from "@/components/chat/dressing-room-context";
+import { FeatureErrorBoundary } from "@/components/error/feature-error-boundary";
+import {
+  DressingRoomProvider,
+  useDressingRoomContext,
+} from "@/components/chat/dressing-room-context";
 import { DressingRoomPanel } from "@/components/chat/dressing-room-panel";
 import { readChatOpen, writeChatOpen } from "@/components/chat/use-dressing-room";
 import { Button } from "@/components/ui/button";
@@ -29,13 +33,11 @@ function shouldHide(pathname: string) {
 }
 
 function DressingRoomChrome({
-  children,
   managerId,
   managerName,
   avatarUrl,
   isAdmin,
 }: {
-  children: React.ReactNode;
   managerId: number | null;
   managerName: string | null;
   avatarUrl?: string | null;
@@ -84,7 +86,7 @@ function DressingRoomChrome({
   }, [fullscreen]);
 
   if (shouldHide(pathname)) {
-    return <>{children}</>;
+    return null;
   }
 
   const panelProps = {
@@ -95,9 +97,7 @@ function DressingRoomChrome({
   };
 
   return (
-    <div className="flex min-h-0 flex-1">
-      <div className="min-w-0 flex-1">{children}</div>
-
+    <>
       <aside
         className={cn(
           "relative hidden shrink-0 border-l border-border/60 transition-[width] duration-300 ease-out lg:block",
@@ -278,7 +278,7 @@ function DressingRoomChrome({
           Full Dressing Room page
         </Link>
       </div>
-    </div>
+    </>
   );
 }
 
@@ -295,6 +295,7 @@ export function DressingRoomLayout({
   avatarUrl?: string | null;
   isAdmin?: boolean;
 }) {
+  const pathname = usePathname();
   const me: ChatPresencePayload | null =
     managerId != null && managerName
       ? {
@@ -305,16 +306,23 @@ export function DressingRoomLayout({
         }
       : null;
 
+  if (shouldHide(pathname)) {
+    return <>{children}</>;
+  }
+
   return (
-    <DressingRoomProvider me={me}>
-      <DressingRoomChrome
-        managerId={managerId}
-        managerName={managerName}
-        avatarUrl={avatarUrl}
-        isAdmin={isAdmin}
-      >
-        {children}
-      </DressingRoomChrome>
-    </DressingRoomProvider>
+    <div className="flex min-h-0 flex-1">
+      <div className="min-w-0 flex-1">{children}</div>
+      <FeatureErrorBoundary feature="chat" variant="rail">
+        <DressingRoomProvider me={me}>
+          <DressingRoomChrome
+            managerId={managerId}
+            managerName={managerName}
+            avatarUrl={avatarUrl}
+            isAdmin={isAdmin}
+          />
+        </DressingRoomProvider>
+      </FeatureErrorBoundary>
+    </div>
   );
 }

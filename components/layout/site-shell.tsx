@@ -1,6 +1,8 @@
 import type { ReactNode } from "react";
+import { Suspense } from "react";
 import Link from "next/link";
 import { headers } from "next/headers";
+import { FeatureErrorBoundary } from "@/components/error/feature-error-boundary";
 import { DressingRoomLayout } from "@/components/chat/dressing-room-layout";
 import { GwWinnerCelebration } from "@/components/layout/gw-winner-celebration";
 import { Navbar } from "@/components/layout/navbar";
@@ -8,16 +10,45 @@ import { PublicHeader } from "@/components/layout/public-header";
 import { SiteFooter } from "@/components/layout/site-footer";
 import { PageTransition } from "@/components/motion/page-transition";
 import { NotificationProvider } from "@/components/notifications/notification-provider";
+import { logAppError } from "@/lib/errors/log";
 import { getAuthStatus } from "@/lib/auth/session";
 import { getActiveGwWinnerCelebration } from "@/lib/league/celebration";
 
 async function currentPathname() {
-  const h = await headers();
-  return h.get("x-pathname") ?? "";
+  try {
+    const h = await headers();
+    return h.get("x-pathname") ?? "";
+  } catch {
+    return "";
+  }
+}
+
+async function CelebrationSlot() {
+  try {
+    const celebration = await getActiveGwWinnerCelebration();
+    if (!celebration) return null;
+    return <GwWinnerCelebration celebration={celebration} />;
+  } catch (error) {
+    logAppError("celebration", error);
+    return null;
+  }
 }
 
 export async function SiteShell({ children }: { children: ReactNode }) {
-  const auth = await getAuthStatus();
+  let auth: Awaited<ReturnType<typeof getAuthStatus>>;
+  try {
+    auth = await getAuthStatus();
+  } catch (error) {
+    logAppError("shell", error);
+    auth = {
+      signedIn: false,
+      email: null,
+      verified: false,
+      isAdmin: false,
+      manager: null,
+    };
+  }
+
   const authLabel =
     auth.manager?.displayName ?? (auth.signedIn ? auth.email : null);
   const managerId = auth.manager?.managerId ?? null;
@@ -26,11 +57,6 @@ export async function SiteShell({ children }: { children: ReactNode }) {
   const path = await currentPathname();
   const cinematic =
     path === "/onboarding/recap" || path.startsWith("/onboarding/recap");
-
-  const celebration =
-    auth.signedIn && !cinematic
-      ? await getActiveGwWinnerCelebration()
-      : null;
 
   if (!auth.signedIn) {
     return (
@@ -72,9 +98,11 @@ export async function SiteShell({ children }: { children: ReactNode }) {
             to unlock chat, Baaji, and notifications.
           </div>
         ) : null}
-        {celebration ? (
-          <GwWinnerCelebration celebration={celebration} />
-        ) : null}
+        <Suspense fallback={null}>
+          <FeatureErrorBoundary feature="celebration" variant="silent">
+            <CelebrationSlot />
+          </FeatureErrorBoundary>
+        </Suspense>
         <div className="flex min-h-0 flex-1 flex-col">
           <DressingRoomLayout
             managerId={managerId}

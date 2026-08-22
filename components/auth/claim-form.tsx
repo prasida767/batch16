@@ -52,9 +52,8 @@ export function ClaimForm({
       <CardHeader>
         <CardTitle>Verify your manager</CardTitle>
         <CardDescription>
-          Signed in as {email}. Confirm your league identity, then pick the
-          Premier League club you support — we&apos;ll build your animated
-          crest avatar from that.
+          Signed in as {email}. Match yourself to this FPL league, then pick the
+          Premier League club you support for your crest avatar.
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -65,32 +64,49 @@ export function ClaimForm({
           <input type="hidden" name="supportedTeamId" value={supportedTeamId} />
           <input type="hidden" name="avatarVariant" value={avatarVariant} />
 
+          <p className="text-xs text-muted-foreground">
+            Fill in at least one of name, FPL team name, or entry ID. Entry ID
+            is the most reliable — it&apos;s the number in your FPL team URL.
+          </p>
+
           <div className="space-y-2">
-            <Label htmlFor="fullName">Your name</Label>
+            <Label htmlFor="fullName">Your name (optional)</Label>
             <Input
               id="fullName"
               name="fullName"
-              required
               placeholder="e.g. Prasiddha Khadka"
               autoComplete="name"
             />
             <p className="text-xs text-muted-foreground">
-              First and last name as in the standings. First name alone is OK
-              if nobody else shares it.
+              As it appears on the league standings. First name alone is OK if
+              nobody else shares it.
             </p>
           </div>
           <div className="space-y-2">
-            <Label htmlFor="teamName">FPL team name</Label>
+            <Label htmlFor="teamName">FPL team name (optional)</Label>
             <Input
               id="teamName"
               name="teamName"
-              required
               placeholder="Your team name on FPL"
               autoComplete="off"
             />
             <p className="text-xs text-muted-foreground">
-              Your fantasy team name from the league table — punctuation and
-              &ldquo;FC&rdquo; don&apos;t have to match exactly.
+              The fantasy team name in the league table — not your club or
+              email. Punctuation and “FC” don&apos;t have to match exactly.
+            </p>
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="entryId">FPL entry ID (optional)</Label>
+            <Input
+              id="entryId"
+              name="entryId"
+              inputMode="numeric"
+              placeholder="e.g. 1234567 or paste your /entry/ URL"
+              autoComplete="off"
+            />
+            <p className="text-xs text-muted-foreground">
+              Open your team on FPL and copy the number from
+              fantasy.premierleague.com/entry/XXXXXX/.
             </p>
           </div>
 
@@ -139,6 +155,7 @@ export function ClaimForm({
                 "text-sm",
                 state.ok ? "text-primary" : "text-destructive",
               )}
+              role="alert"
             >
               {state.message}
             </p>

@@ -14,6 +14,7 @@ import {
 import {
   cancelChallengeAction,
   createChallengeAction,
+  resolveChallengeAction,
   respondChallengeAction,
 } from "@/app/challenges/actions";
 import { AuthIdentityCard } from "@/components/auth/auth-identity-card";
@@ -38,6 +39,7 @@ import {
   CHALLENGE_ACTIVITY,
   CHALLENGE_STATUS,
   HIGH_STAKE_NPR,
+  canMarkBaajiWinner,
   isHighStake,
 } from "@/lib/challenges/types";
 import { ManagerAvatar } from "@/components/league/shared";
@@ -56,7 +58,7 @@ type ManagerOption = {
   avatarVariant?: number | null;
 };
 
-type ActionKind = "accept" | "decline" | "create" | "cancel" | null;
+type ActionKind = "accept" | "decline" | "create" | "cancel" | "complete" | null;
 
 type Celebration = {
   kind: "kickoff" | "win" | "highWin" | "create";
@@ -102,25 +104,32 @@ export function ChallengesBoard({
     _challenge?: ChallengeView | null,
   ) {
     startTransition(async () => {
-      const result = await action(formData);
-      setFlash(result);
-      if (result.ok) {
-        if (kind === "accept") {
-          playBaajiSound("kickoff", muted);
-          setCelebration({
-            kind: "kickoff",
-            title: "Match kick-off!",
-            subtitle: "The baaji is live — may the better FPL manager win.",
-          });
-        } else if (kind === "create") {
-          playBaajiSound("create", muted);
-          setCelebration({
-            kind: "create",
-            title: "Fixture posted",
-            subtitle: "Waiting for your opponent to walk out of the tunnel.",
-          });
+      try {
+        const result = await action(formData);
+        setFlash(result);
+        if (result.ok) {
+          if (kind === "accept") {
+            playBaajiSound("kickoff", muted);
+            setCelebration({
+              kind: "kickoff",
+              title: "Match kick-off!",
+              subtitle: "The baaji is live — may the better FPL manager win.",
+            });
+          } else if (kind === "create") {
+            playBaajiSound("create", muted);
+            setCelebration({
+              kind: "create",
+              title: "Fixture posted",
+              subtitle: "Waiting for your opponent to walk out of the tunnel.",
+            });
+          }
+          router.refresh();
         }
-        router.refresh();
+      } catch {
+        setFlash({
+          ok: false,
+          message: "Couldn't update that baaji. Try again.",
+        });
       }
     });
   }
@@ -725,6 +734,13 @@ function MatchCard({
     isCreator &&
     (challenge.status === CHALLENGE_STATUS.PENDING ||
       challenge.status === CHALLENGE_STATUS.ACCEPTED);
+  const canComplete =
+    challenge.status === CHALLENGE_STATUS.ACCEPTED &&
+    canMarkBaajiWinner({
+      actorId: actingManagerId,
+      creatorId: challenge.creatorId,
+      opponentId: challenge.opponentId,
+    });
   const high = isHighStake(challenge.stakeNpr);
   const completed = challenge.status === CHALLENGE_STATUS.COMPLETED;
   const declined = challenge.status === CHALLENGE_STATUS.DECLINED;
@@ -757,12 +773,18 @@ function MatchCard({
           ) : null}
           {challenge.status === CHALLENGE_STATUS.ACCEPTED ? (
             <p className="text-[11px] text-emerald-100/55">
-              Match in play — admin declares full-time
+              {canMarkBaajiWinner({
+                actorId: actingManagerId,
+                creatorId: challenge.creatorId,
+                opponentId: challenge.opponentId,
+              })
+                ? "Match in play — pick a winner when it’s done"
+                : "Match in play — either manager or admin can declare full-time"}
             </p>
           ) : null}
         </div>
 
-        {(canRespond || canCancel) && (
+        {(canRespond || canCancel || canComplete) && (
           <div className="flex flex-wrap items-center justify-center gap-2 border-t border-white/10 px-3 pt-3">
             {canRespond ? (
               <>
@@ -812,6 +834,53 @@ function MatchCard({
                   </Button>
                 </motion.form>
               </>
+            ) : null}
+
+            {canComplete ? (
+              <form
+                className="flex flex-wrap items-center justify-center gap-2"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  onAction(
+                    resolveChallengeAction,
+                    new FormData(event.currentTarget),
+                    "complete",
+                    challenge,
+                  );
+                }}
+              >
+                <input type="hidden" name="challengeId" value={challenge.id} />
+                <select
+                  name="winnerId"
+                  required
+                  disabled={pending}
+                  defaultValue=""
+                  className="h-8 rounded-lg border border-white/20 bg-black/40 px-2 text-xs text-white"
+                >
+                  <option value="" disabled>
+                    Winner
+                  </option>
+                  <option value={challenge.creatorId}>
+                    {challenge.creatorName}
+                  </option>
+                  <option value={challenge.opponentId}>
+                    {challenge.opponentName}
+                  </option>
+                </select>
+                <Button
+                  type="submit"
+                  size="sm"
+                  className="gap-1.5 bg-amber-400 text-emerald-950 hover:bg-amber-300"
+                  disabled={pending}
+                >
+                  {pending ? (
+                    <LoaderCircle className="size-3.5 animate-spin" />
+                  ) : (
+                    <Trophy className="size-3.5" />
+                  )}
+                  Full-time
+                </Button>
+              </form>
             ) : null}
 
             {canCancel ? (

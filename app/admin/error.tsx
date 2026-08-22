@@ -13,8 +13,8 @@ export default function Error({
     <RouteErrorView
       error={error}
       reset={reset}
-      title="Batch 16"
-      feature="app"
+      title="Admin"
+      feature="admin"
     />
   );
 }

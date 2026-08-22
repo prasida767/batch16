@@ -1,5 +1,5 @@
 import { PrizeConfigForm } from "@/components/admin/prize-config-form";
-import { PageHeader, SetupState } from "@/components/league/shared";
+import { ErrorState, PageHeader, SetupState } from "@/components/league/shared";
 import { getPrizeAdminData } from "@/app/admin/actions";
 import { isDatabaseConfigured } from "@/lib/db";
 
@@ -21,15 +21,30 @@ export default async function AdminSettingsPage() {
     );
   }
 
-  const { config, managerCount } = await getPrizeAdminData();
+  try {
+    const { config, managerCount } = await getPrizeAdminData();
 
-  return (
-    <div className="space-y-6">
-      <PageHeader
-        title="Prize settings"
-        description="Allocate the pot across weekly, season, and custom prizes — remaining updates live."
-      />
-      <PrizeConfigForm initial={config} managerCount={managerCount} />
-    </div>
-  );
+    return (
+      <div className="space-y-6">
+        <PageHeader
+          title="Prize settings"
+          description="Allocate the pot across weekly, season, and custom prizes — remaining updates live."
+        />
+        <PrizeConfigForm initial={config} managerCount={managerCount} />
+      </div>
+    );
+  } catch (error) {
+    return (
+      <div className="space-y-6">
+        <PageHeader title="Prize settings" />
+        <ErrorState
+          message={
+            error instanceof Error
+              ? error.message
+              : "Couldn't load prize settings."
+          }
+        />
+      </div>
+    );
+  }
 }

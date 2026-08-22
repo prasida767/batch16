@@ -3,13 +3,12 @@ import {
   PageHeader,
   SetupState,
 } from "@/components/league/shared";
+import { FeatureErrorBoundary } from "@/components/error/feature-error-boundary";
 import { LeagueHub } from "@/components/league/league-hub";
+import { logAppError } from "@/lib/errors/log";
 import { getVerifiedManager } from "@/lib/auth/session";
 import { getActingManagerId } from "@/lib/challenges";
-import {
-  ensureDocumentaryEpisodes,
-  getLatestDocumentaryEpisode,
-} from "@/lib/documentary";
+import { getLatestDocumentaryEpisode } from "@/lib/documentary";
 import { getDashboardData } from "@/lib/league";
 import { getUpcomingFixtures } from "@/lib/fpl";
 import { isDatabaseConfigured } from "@/lib/db";
@@ -17,7 +16,24 @@ import { isDatabaseConfigured } from "@/lib/db";
 export const dynamic = "force-dynamic";
 
 export default async function LeaguePage() {
-  const result = await getDashboardData();
+  let result: Awaited<ReturnType<typeof getDashboardData>>;
+  try {
+    result = await getDashboardData();
+  } catch (error) {
+    logAppError("league", error);
+    return (
+      <div className="space-y-6">
+        <PageHeader eyebrow="League" title="League table" />
+        <ErrorState
+          message={
+            error instanceof Error
+              ? error.message
+              : "Couldn't load the league. Try refreshing."
+          }
+        />
+      </div>
+    );
+  }
   const me = await getVerifiedManager().catch(() => null);
 
   if (result.kind === "no_league") {
@@ -55,22 +71,24 @@ export default async function LeaguePage() {
   let latestEpisode = null;
   if (isDatabaseConfigured()) {
     try {
-      await ensureDocumentaryEpisodes();
       const viewerId = await getActingManagerId();
       latestEpisode = await getLatestDocumentaryEpisode(viewerId);
-    } catch {
+    } catch (error) {
+      logAppError("documentary", error, { source: "league-teaser" });
       latestEpisode = null;
     }
   }
 
   return (
-    <LeagueHub
-      initial={data}
-      currency={data.prize.currency}
-      lastWinnerHint={lastWinnerHint}
-      initialFixtures={fixtures}
-      featuredEpisode={latestEpisode}
-      highlightEntryId={me?.fplEntryId ?? null}
-    />
+    <FeatureErrorBoundary feature="league" variant="page">
+      <LeagueHub
+        initial={data}
+        currency={data.prize.currency}
+        lastWinnerHint={lastWinnerHint}
+        initialFixtures={fixtures}
+        featuredEpisode={latestEpisode}
+        highlightEntryId={me?.fplEntryId ?? null}
+      />
+    </FeatureErrorBoundary>
   );
 }

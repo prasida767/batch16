@@ -100,7 +100,7 @@ export default async function ClaimPage({
       <PageHeader
         eyebrow="Account"
         title="Link your manager"
-        description="Match your name and FPL team, then choose the Premier League club you support for your crest avatar."
+        description="Match your FPL team with your name, team name, or entry ID, then pick the club you support."
       />
       <ClaimForm email={auth.email ?? ""} nextPath={nextPath} clubs={clubs} />
       <form action={signOutAction} className="mx-auto max-w-md text-center">

@@ -57,7 +57,12 @@ export default async function ManagerDetailPage({
   const currency = data.prize.currency;
   const captain = data.starters.find((player) => player.isCaptain);
   const vice = [...data.starters, ...data.bench].find((player) => player.isVice);
-  const rivalry = await getManagerRivalryProfile(entryId);
+  let rivalry = null;
+  try {
+    rivalry = await getManagerRivalryProfile(entryId);
+  } catch (error) {
+    console.error("[manager] Rivalry failed", error);
+  }
 
   return (
     <div className="space-y-8">

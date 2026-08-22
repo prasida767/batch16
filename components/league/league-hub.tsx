@@ -10,6 +10,7 @@ import { FadeIn } from "@/components/motion/page-transition";
 import { AnimatedMoney } from "@/components/motion/animated-money";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { logAppError, readResponseJson } from "@/lib/errors/log";
 import { formatMoney } from "@/lib/prizes";
 import type {
   DashboardData,
@@ -119,11 +120,17 @@ export function LeagueHub({
     setRefreshing(true);
     try {
       const response = await fetch("/api/live", { cache: "no-store" });
-      const json = (await response.json()) as
+      const json = await readResponseJson<
         | { kind: "ok"; data: LiveStandingsPayload }
         | { kind: "idle"; data: LiveStandingsPayload }
         | { kind: "error"; message: string }
-        | { kind: "no_league"; message: string };
+        | { kind: "no_league"; message: string }
+      >(response);
+
+      if (!json) {
+        setError("Couldn't refresh live scores.");
+        return;
+      }
 
       if (json.kind === "ok" || json.kind === "idle") {
         const payload = json.data;
@@ -137,7 +144,8 @@ export function LeagueHub({
       } else {
         setError(json.message || "Couldn't refresh live scores.");
       }
-    } catch {
+    } catch (error) {
+      logAppError("league", error, { action: "live-refresh" });
       setError("Couldn't refresh live scores.");
     } finally {
       inFlight.current = false;

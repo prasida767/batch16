@@ -9,8 +9,13 @@ import { ACTING_MANAGER_COOKIE } from "@/lib/challenges/types";
  * Cookie impersonation is no longer accepted for challenges / wall.
  */
 export async function getActingManagerId(): Promise<number | null> {
-  const verified = await getVerifiedManager();
-  return verified?.managerId ?? null;
+  try {
+    const verified = await getVerifiedManager();
+    return verified?.managerId ?? null;
+  } catch (error) {
+    console.error("[auth] getActingManagerId failed", error);
+    return null;
+  }
 }
 
 /** @deprecated Cookie identity removed — use auth claim flow. */

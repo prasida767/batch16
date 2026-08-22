@@ -1,4 +1,5 @@
-import { PageHeader, SetupState } from "@/components/league/shared";
+import { ErrorState, PageHeader, SetupState } from "@/components/league/shared";
+import { FeatureErrorBoundary } from "@/components/error/feature-error-boundary";
 import { ChallengesBoard } from "@/components/challenges/challenges-board";
 import { FadeIn } from "@/components/motion/page-transition";
 import { getChallengesPageData } from "@/app/challenges/actions";
@@ -20,6 +21,19 @@ export default async function ChallengesPage() {
           title="Connect the database"
           body="Set DATABASE_URL and run migrations before using Baaji."
         />
+      </div>
+    );
+  }
+
+  if (data.kind === "error") {
+    return (
+      <div className="space-y-6">
+        <PageHeader
+          eyebrow="Match day"
+          title="Baaji"
+          description="Friendly wagers between managers — stakes are tracked only."
+        />
+        <ErrorState message={data.message} />
       </div>
     );
   }
@@ -51,16 +65,18 @@ export default async function ChallengesPage() {
         </div>
       </FadeIn>
       <FadeIn delay={0.04}>
-        <ChallengesBoard
-          actingManagerId={data.actingManagerId}
-          actingName={data.acting?.displayName ?? null}
-          signedIn
-          managers={data.managers}
-          currentGameweek={data.currentGameweek}
-          awaitingYou={data.awaitingYou}
-          active={data.active}
-          season={data.season}
-        />
+        <FeatureErrorBoundary feature="baaji" variant="page">
+          <ChallengesBoard
+            actingManagerId={data.actingManagerId}
+            actingName={data.acting?.displayName ?? null}
+            signedIn
+            managers={data.managers}
+            currentGameweek={data.currentGameweek}
+            awaitingYou={data.awaitingYou}
+            active={data.active}
+            season={data.season}
+          />
+        </FeatureErrorBoundary>
       </FadeIn>
     </div>
   );

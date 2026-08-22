@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { AwardsAdmin } from "@/components/admin/awards-admin";
-import { PageHeader, SetupState } from "@/components/league/shared";
+import { ErrorState, PageHeader, SetupState } from "@/components/league/shared";
 import { getAdminAwardsData } from "@/app/social/actions";
 import { isDatabaseConfigured } from "@/lib/db";
 import { cn } from "@/lib/utils";
@@ -29,7 +29,27 @@ export default async function AdminAwardsPage({
   const data = await getAdminAwardsData(
     selected && Number.isInteger(selected) ? selected : undefined,
   );
-  if (data.kind !== "ok") return null;
+  if (data.kind !== "ok") {
+    return (
+      <div className="space-y-6">
+        <PageHeader title="Weekly awards" />
+        {data.kind === "no_db" ? (
+          <SetupState
+            title="Connect the database"
+            body="Set DATABASE_URL first."
+          />
+        ) : (
+          <ErrorState
+            message={
+              "message" in data
+                ? String(data.message)
+                : "Couldn't load awards."
+            }
+          />
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">

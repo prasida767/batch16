@@ -7,6 +7,7 @@ import {
   sendChatMessage,
 } from "@/lib/chat";
 import { listChatRoster } from "@/lib/chat/roster";
+import { logAppError } from "@/lib/errors/log";
 import { isDatabaseConfigured } from "@/lib/db";
 import { rejectCrossOrigin } from "@/lib/security/request";
 import { checkRateLimit, RATE_LIMITS } from "@/lib/security/rate-limit";
@@ -53,6 +54,7 @@ export async function GET(request: Request) {
       { headers: { "Cache-Control": "no-store, max-age=0" } },
     );
   } catch (error) {
+    logAppError("chat-api", error, { method: "GET" });
     return Response.json(
       {
         kind: "error",
@@ -114,6 +116,7 @@ export async function POST(request: Request) {
 
     return Response.json({ kind: "ok", message });
   } catch (error) {
+    logAppError("chat-api", error, { method: "POST" });
     return Response.json(
       {
         kind: "error",

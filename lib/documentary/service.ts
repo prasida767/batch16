@@ -169,14 +169,19 @@ export async function listDocumentaryEpisodeViews(
 export async function getDocumentaryShelf(
   viewerId: number | null = null,
 ): Promise<DocumentaryShelf> {
-  const episodes = await listDocumentaryEpisodeViews(viewerId);
-  const finale = episodes.find((e) => e.kind === "finale") ?? null;
-  const weekly = episodes.filter((e) => e.kind === "weekly");
-  return {
-    featured: weekly[0] ?? finale,
-    episodes: weekly,
-    finale,
-  };
+  try {
+    const episodes = await listDocumentaryEpisodeViews(viewerId);
+    const finale = episodes.find((e) => e.kind === "finale") ?? null;
+    const weekly = episodes.filter((e) => e.kind === "weekly");
+    return {
+      featured: weekly[0] ?? finale,
+      episodes: weekly,
+      finale,
+    };
+  } catch (error) {
+    console.error("[documentary] shelf failed", error);
+    return { featured: null, episodes: [], finale: null };
+  }
 }
 
 export async function getLatestDocumentaryEpisode(
@@ -425,71 +430,107 @@ export async function generateSeasonFinaleEpisode(
   return getDocumentaryEpisodeById(id);
 }
 
+let lastEnsureAt = 0;
+let ensureInFlight: Promise<void> | null = null;
+const ENSURE_TTL_MS = 5 * 60 * 1000;
+
 /**
  * Archive chat for closed GWs, then generate any missing documentary episodes.
- * Safe to call from page loads.
+ * Safe to call from page loads. Throttled so League/Documentary can't stampede FPL.
  */
 export async function ensureDocumentaryEpisodes(): Promise<void> {
+  const now = Date.now();
+  if (now - lastEnsureAt < ENSURE_TTL_MS && ensureInFlight == null) return;
+  if (ensureInFlight) return ensureInFlight;
+  ensureInFlight = runEnsureDocumentaryEpisodes().finally(() => {
+    lastEnsureAt = Date.now();
+    ensureInFlight = null;
+  });
+  return ensureInFlight;
+}
+
+async function runEnsureDocumentaryEpisodes(): Promise<void> {
   try {
     await ensureChatGameweekRollover();
   } catch {
     // Chat rollover is best-effort when FPL is down.
   }
 
-  const snapshot = await getLeagueSnapshot();
+  let snapshot: Awaited<ReturnType<typeof getLeagueSnapshot>>;
+  try {
+    snapshot = await getLeagueSnapshot();
+  } catch (error) {
+    console.error("[documentary] snapshot failed", error);
+    return;
+  }
   if (snapshot.kind !== "ok") return;
 
-  const weeks = buildWeeklyGameweeks(
-    leagueRosterRows(snapshot.data.standings),
-    snapshot.data.bootstrap,
-    snapshot.data.histories,
-    snapshot.data.db.weekly,
-  );
+  try {
+    const weeks = buildWeeklyGameweeks(
+      leagueRosterRows(snapshot.data.standings),
+      snapshot.data.bootstrap,
+      snapshot.data.histories,
+      snapshot.data.db.weekly,
+    );
 
-  const db = getDb();
-  const existing = await db
-    .select({
-      kind: documentaryEpisodes.kind,
-      gameweek: documentaryEpisodes.gameweek,
-    })
-    .from(documentaryEpisodes);
+    const db = getDb();
+    const existing = await db
+      .select({
+        kind: documentaryEpisodes.kind,
+        gameweek: documentaryEpisodes.gameweek,
+      })
+      .from(documentaryEpisodes);
 
-  const weeklyDone = new Set(
-    existing
-      .filter((e) => e.kind === "weekly" && e.gameweek != null)
-      .map((e) => e.gameweek as number),
-  );
-  const hasFinale = existing.some((e) => e.kind === "finale");
+    const weeklyDone = new Set(
+      existing
+        .filter((e) => e.kind === "weekly" && e.gameweek != null)
+        .map((e) => e.gameweek as number),
+    );
+    const hasFinale = existing.some((e) => e.kind === "finale");
 
-  // Drop premature / empty-week episodes (e.g. preseason GW1 with 0 pts).
-  const weekByGw = new Map(weeks.map((w) => [w.gameweek, w]));
-  for (const ep of existing) {
-    if (ep.kind !== "weekly" || ep.gameweek == null) continue;
-    const week = weekByGw.get(ep.gameweek);
-    if (!week || !isDocumentaryWeekEligible(week)) {
-      await db
-        .delete(documentaryEpisodes)
-        .where(
-          and(
-            eq(documentaryEpisodes.kind, "weekly"),
-            eq(documentaryEpisodes.gameweek, ep.gameweek),
-          ),
-        );
-      weeklyDone.delete(ep.gameweek);
+    // Drop premature / empty-week episodes (e.g. preseason GW1 with 0 pts).
+    const weekByGw = new Map(weeks.map((w) => [w.gameweek, w]));
+    for (const ep of existing) {
+      if (ep.kind !== "weekly" || ep.gameweek == null) continue;
+      const week = weekByGw.get(ep.gameweek);
+      if (!week || !isDocumentaryWeekEligible(week)) {
+        await db
+          .delete(documentaryEpisodes)
+          .where(
+            and(
+              eq(documentaryEpisodes.kind, "weekly"),
+              eq(documentaryEpisodes.gameweek, ep.gameweek),
+            ),
+          );
+        weeklyDone.delete(ep.gameweek);
+      }
     }
-  }
 
-  for (const week of weeks) {
-    if (!isDocumentaryWeekEligible(week)) continue;
-    if (weeklyDone.has(week.gameweek)) continue;
-    await generateWeeklyDocumentaryEpisode(week.gameweek, { notify: false });
-  }
+    for (const week of weeks) {
+      if (!isDocumentaryWeekEligible(week)) continue;
+      if (weeklyDone.has(week.gameweek)) continue;
+      try {
+        await generateWeeklyDocumentaryEpisode(week.gameweek, { notify: false });
+      } catch (error) {
+        console.error(
+          `[documentary] weekly GW${week.gameweek} failed`,
+          error,
+        );
+      }
+    }
 
-  const seasonComplete = snapshot.data.bootstrap.events.every(
-    (e) => e.finished,
-  );
-  if (seasonComplete && !hasFinale) {
-    await generateSeasonFinaleEpisode({ notify: false });
+    const seasonComplete = snapshot.data.bootstrap.events.every(
+      (e) => e.finished,
+    );
+    if (seasonComplete && !hasFinale) {
+      try {
+        await generateSeasonFinaleEpisode({ notify: false });
+      } catch (error) {
+        console.error("[documentary] finale failed", error);
+      }
+    }
+  } catch (error) {
+    console.error("[documentary] ensure failed", error);
   }
 }
 

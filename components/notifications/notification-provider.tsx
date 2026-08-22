@@ -12,6 +12,8 @@ import {
 } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { X } from "lucide-react";
+import { FeatureErrorBoundary } from "@/components/error/feature-error-boundary";
+import { logAppError, readResponseJson } from "@/lib/errors/log";
 import { createClient } from "@/lib/supabase/client";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 import { formatTimeAgo } from "@/lib/notifications/time-ago";
@@ -116,19 +118,22 @@ export function NotificationProvider({
       const res = await fetch("/api/notifications?limit=40", {
         cache: "no-store",
       });
-      const data = (await res.json()) as
+      const data = await readResponseJson<
         | {
             kind: "ok";
             items: NotificationView[];
             unreadCount: number;
           }
-        | { kind: "error"; message: string };
-      if (data.kind !== "ok") return;
+        | { kind: "error"; message: string }
+      >(res);
+      if (!data || data.kind !== "ok") return;
 
       for (const n of data.items) seenIds.current.add(n.id);
       setItems(data.items);
       setUnreadCount(data.unreadCount);
       ready.current = true;
+    } catch (error) {
+      logAppError("notifications", error);
     } finally {
       setLoading(false);
     }
@@ -155,7 +160,7 @@ export function NotificationProvider({
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action: "read", id }),
-    });
+    }).catch(() => undefined);
   }, []);
 
   const markAllRead = useCallback(async () => {
@@ -169,7 +174,7 @@ export function NotificationProvider({
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action: "read_all" }),
-    });
+    }).catch(() => undefined);
   }, []);
 
   useEffect(() => {
@@ -199,33 +204,37 @@ export function NotificationProvider({
               filter: `recipient_manager_id=eq.${managerId}`,
             },
             (payload) => {
-              const row = payload.new as {
-                id: number;
-                recipient_manager_id: number;
-                actor_manager_id: number | null;
-                type: string;
-                title: string;
-                body: string | null;
-                href: string | null;
-                meta: Record<string, unknown> | null;
-                read_at: string | null;
-                created_at: string;
-              };
-              const view: NotificationView = {
-                id: row.id,
-                recipientManagerId: row.recipient_manager_id,
-                actorManagerId: row.actor_manager_id,
-                actorName: null,
-                type: row.type,
-                title: row.title,
-                body: row.body,
-                href: row.href,
-                meta: row.meta ?? {},
-                readAt: row.read_at,
-                createdAt: row.created_at,
-              };
-              ingest([view], { toastNew: true });
-              setUnreadCount((c) => c + 1);
+              try {
+                const row = payload.new as {
+                  id: number;
+                  recipient_manager_id: number;
+                  actor_manager_id: number | null;
+                  type: string;
+                  title: string;
+                  body: string | null;
+                  href: string | null;
+                  meta: Record<string, unknown> | null;
+                  read_at: string | null;
+                  created_at: string;
+                };
+                const view: NotificationView = {
+                  id: row.id,
+                  recipientManagerId: row.recipient_manager_id,
+                  actorManagerId: row.actor_manager_id,
+                  actorName: null,
+                  type: row.type,
+                  title: row.title,
+                  body: row.body,
+                  href: row.href,
+                  meta: row.meta ?? {},
+                  readAt: row.read_at,
+                  createdAt: row.created_at,
+                };
+                ingest([view], { toastNew: true });
+                setUnreadCount((c) => c + 1);
+              } catch (error) {
+                logAppError("notifications", error, { source: "realtime" });
+              }
             },
           )
           .subscribe();
@@ -276,7 +285,9 @@ export function NotificationProvider({
   return (
     <NotificationsContext.Provider value={value}>
       {children}
-      <ToastStack toasts={toasts} onDismiss={dismissToast} />
+      <FeatureErrorBoundary feature="notifications" variant="silent">
+        <ToastStack toasts={toasts} onDismiss={dismissToast} />
+      </FeatureErrorBoundary>
     </NotificationsContext.Provider>
   );
 }

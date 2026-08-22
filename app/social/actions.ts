@@ -46,40 +46,51 @@ async function requireAdminAction(): Promise<ActionResult | null> {
 export async function getAwardsPageData(selectedGw?: number) {
   if (!isDatabaseConfigured()) return { kind: "no_db" as const };
 
-  const snapshot = await getLeagueSnapshot();
-  let finishedGws: number[] = [];
-  if (snapshot.kind === "ok") {
-    const weeks = buildWeeklyGameweeks(
-      leagueRosterRows(snapshot.data.standings),
-      snapshot.data.bootstrap,
-      snapshot.data.histories,
-      snapshot.data.db.weekly,
-    );
-    finishedGws = weeks
-      .filter((w) => w.finished)
-      .map((w) => w.gameweek)
-      .sort((a, b) => b - a);
+  try {
+    const snapshot = await getLeagueSnapshot();
+    let finishedGws: number[] = [];
+    if (snapshot.kind === "ok") {
+      const weeks = buildWeeklyGameweeks(
+        leagueRosterRows(snapshot.data.standings),
+        snapshot.data.bootstrap,
+        snapshot.data.histories,
+        snapshot.data.db.weekly,
+      );
+      finishedGws = weeks
+        .filter((w) => w.finished)
+        .map((w) => w.gameweek)
+        .sort((a, b) => b - a);
+    }
+
+    const storedGws = await listAwardGameweeks();
+    const gameweeks = [
+      ...new Set([...storedGws, ...finishedGws]),
+    ].sort((a, b) => b - a);
+
+    const gameweek =
+      selectedGw && gameweeks.includes(selectedGw)
+        ? selectedGw
+        : (gameweeks[0] ?? null);
+
+    const awards = gameweek != null ? await listAwardsForGameweek(gameweek) : [];
+
+    return {
+      kind: "ok" as const,
+      gameweeks,
+      gameweek,
+      awards,
+      hasLeague: snapshot.kind === "ok",
+    };
+  } catch (error) {
+    console.error("[awards] Page data failed", error);
+    return {
+      kind: "error" as const,
+      message:
+        error instanceof Error
+          ? error.message
+          : "Couldn't load awards. Try refreshing.",
+    };
   }
-
-  const storedGws = await listAwardGameweeks();
-  const gameweeks = [
-    ...new Set([...storedGws, ...finishedGws]),
-  ].sort((a, b) => b - a);
-
-  const gameweek =
-    selectedGw && gameweeks.includes(selectedGw)
-      ? selectedGw
-      : (gameweeks[0] ?? null);
-
-  const awards = gameweek != null ? await listAwardsForGameweek(gameweek) : [];
-
-  return {
-    kind: "ok" as const,
-    gameweeks,
-    gameweek,
-    awards,
-    hasLeague: snapshot.kind === "ok",
-  };
 }
 
 export async function generateAwardsAction(
@@ -165,22 +176,31 @@ export async function getAdminAwardsData(gameweek?: number) {
 
 export async function getWallPageData() {
   if (!isDatabaseConfigured()) return { kind: "no_db" as const };
-  const [actingManagerId, managers, posts] = await Promise.all([
-    getActingManagerId(),
-    listChallengeManagers(),
-    listWallFeed(30),
-  ]);
-  const acting =
-    actingManagerId != null
-      ? managers.find((m) => m.id === actingManagerId) ?? null
-      : null;
-  return {
-    kind: "ok" as const,
-    actingManagerId,
-    acting,
-    managers,
-    posts,
-  };
+  try {
+    const actingManagerId = await getActingManagerId();
+    const managers = await listChallengeManagers();
+    const posts = await listWallFeed(30);
+    const acting =
+      actingManagerId != null
+        ? managers.find((m) => m.id === actingManagerId) ?? null
+        : null;
+    return {
+      kind: "ok" as const,
+      actingManagerId,
+      acting,
+      managers,
+      posts,
+    };
+  } catch (error) {
+    console.error("[wall] Page data failed", error);
+    return {
+      kind: "error" as const,
+      message:
+        error instanceof Error
+          ? error.message
+          : "Couldn't load the dressing room feed.",
+    };
+  }
 }
 
 export async function selectWallIdentity(
@@ -257,9 +277,7 @@ export async function getDashboardSocialExtras() {
       wall: [] as Awaited<ReturnType<typeof listRecentWallPosts>>,
     };
   }
-  const [awards, wall] = await Promise.all([
-    getLatestAwardsPreview(4).catch(() => null),
-    listRecentWallPosts(5).catch(() => []),
-  ]);
+  const awards = await getLatestAwardsPreview(4).catch(() => null);
+  const wall = await listRecentWallPosts(5).catch(() => []);
   return { awards, wall };
 }

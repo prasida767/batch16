@@ -193,11 +193,17 @@ export function SetupState({
   );
 }
 
-export function ErrorState({ message }: { message: string }) {
+export function ErrorState({
+  title = "This section couldn’t load",
+  message,
+}: {
+  title?: string;
+  message: string;
+}) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Couldn’t load league data</CardTitle>
+        <CardTitle>{title}</CardTitle>
       </CardHeader>
       <CardContent>
         <p className="text-sm text-muted-foreground">{message}</p>

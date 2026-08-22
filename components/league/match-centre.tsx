@@ -29,6 +29,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { logAppError, readResponseJson } from "@/lib/errors/log";
 import { rankDelta } from "@/lib/league/format";
 import type {
   LiveManagerScorer,
@@ -183,11 +184,17 @@ export function MatchCentre({
     setRefreshing(true);
     try {
       const response = await fetch("/api/live", { cache: "no-store" });
-      const json = (await response.json()) as
+      const json = await readResponseJson<
         | { kind: "ok"; data: LiveStandingsPayload }
         | { kind: "idle"; data: LiveStandingsPayload }
         | { kind: "error"; message: string }
-        | { kind: "no_league"; message: string };
+        | { kind: "no_league"; message: string }
+      >(response);
+
+      if (!json) {
+        setError("Couldn't refresh live scores.");
+        return;
+      }
 
       if (json.kind === "ok" || json.kind === "idle") {
         setError(null);
@@ -196,7 +203,8 @@ export function MatchCentre({
       } else {
         setError(json.message || "Couldn't refresh live scores.");
       }
-    } catch {
+    } catch (error) {
+      logAppError("live", error, { action: "refresh" });
       setError("Couldn't refresh live scores.");
     } finally {
       inFlight.current = false;

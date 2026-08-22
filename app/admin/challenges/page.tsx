@@ -1,5 +1,5 @@
 import { AdminChallenges } from "@/components/admin/admin-challenges";
-import { PageHeader, SetupState } from "@/components/league/shared";
+import { ErrorState, PageHeader, SetupState } from "@/components/league/shared";
 import { getAdminChallengesData } from "@/app/challenges/actions";
 import { isDatabaseConfigured } from "@/lib/db";
 
@@ -22,8 +22,30 @@ export default async function AdminChallengesPage() {
   }
 
   const data = await getAdminChallengesData();
+  if (data.kind === "error") {
+    return (
+      <div className="space-y-6">
+        <PageHeader
+          title="Baaji"
+          description="Resolve accepted side bets."
+        />
+        <ErrorState message={data.message} />
+      </div>
+    );
+  }
   if (data.kind !== "ok") {
-    return null;
+    return (
+      <div className="space-y-6">
+        <PageHeader
+          title="Baaji"
+          description="Resolve accepted side bets."
+        />
+        <SetupState
+          title="Couldn't load Baaji"
+          body="Try refreshing, or check that the database is connected."
+        />
+      </div>
+    );
   }
 
   return (
