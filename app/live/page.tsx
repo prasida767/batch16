@@ -6,16 +6,26 @@ import {
 import { FeatureErrorBoundary } from "@/components/error/feature-error-boundary";
 import { MatchCentre } from "@/components/league/match-centre";
 import { logAppError } from "@/lib/errors/log";
+import { raceTimeout } from "@/lib/async/timeout";
 import { getVerifiedManager } from "@/lib/auth/session";
 import { getLiveStandingsPayload } from "@/lib/league";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
+export const maxDuration = 30;
 
 export default async function LiveMatchCentrePage() {
   let result: Awaited<ReturnType<typeof getLiveStandingsPayload>>;
   try {
-    result = await getLiveStandingsPayload();
+    result = await raceTimeout(
+      getLiveStandingsPayload(),
+      9_000,
+      {
+        kind: "error" as const,
+        message: "Live standings are taking too long. Try refreshing.",
+      },
+      "getLiveStandingsPayload",
+    );
   } catch (error) {
     logAppError("live", error);
     return (

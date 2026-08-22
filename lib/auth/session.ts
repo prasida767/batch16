@@ -1,10 +1,15 @@
 import "server-only";
 
+import { cache } from "react";
 import { eq, isNotNull } from "drizzle-orm";
+import { raceTimeout } from "@/lib/async/timeout";
 import { getDb, isDatabaseConfigured, managerAccounts, managers } from "@/lib/db";
 import { createClient } from "@/lib/supabase/server";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 import { isAdminEmail } from "@/lib/auth/admin";
+
+const AUTH_WAIT_MS = 4000;
+const DB_WAIT_MS = 6000;
 
 export type VerifiedManager = {
   userId: string;
@@ -14,61 +19,81 @@ export type VerifiedManager = {
   fplEntryId: number;
 };
 
-export async function getAuthUser() {
+export const getAuthUser = cache(async () => {
   try {
     if (!isSupabaseConfigured()) return null;
     const supabase = await createClient();
-    const { data, error } = await supabase.auth.getUser();
-    if (error || !data.user) return null;
-    return data.user;
+    return await raceTimeout(
+      supabase.auth.getUser().then(({ data, error }) => {
+        if (error || !data.user) return null;
+        return data.user;
+      }),
+      AUTH_WAIT_MS,
+      null,
+      "getAuthUser",
+    );
   } catch (error) {
     console.error("[auth] getAuthUser failed", error);
     return null;
   }
-}
+});
 
 /** Session user linked to a verified league manager, or null. */
-export async function getVerifiedManager(): Promise<VerifiedManager | null> {
-  try {
-    const user = await getAuthUser();
-    if (!user || !isDatabaseConfigured()) return null;
+export const getVerifiedManager = cache(
+  async (): Promise<VerifiedManager | null> => {
+    try {
+      const user = await getAuthUser();
+      if (!user || !isDatabaseConfigured()) return null;
 
-    const db = getDb();
-    const [row] = await db
-      .select({
-        userId: managerAccounts.userId,
-        email: managerAccounts.email,
-        managerId: managerAccounts.managerId,
-        displayName: managers.displayName,
-        fplEntryId: managers.fplEntryId,
-      })
-      .from(managerAccounts)
-      .innerJoin(managers, eq(managers.id, managerAccounts.managerId))
-      .where(eq(managerAccounts.userId, user.id))
-      .limit(1);
+      const db = getDb();
+      const rows = await raceTimeout(
+        db
+          .select({
+            userId: managerAccounts.userId,
+            email: managerAccounts.email,
+            managerId: managerAccounts.managerId,
+            displayName: managers.displayName,
+            fplEntryId: managers.fplEntryId,
+          })
+          .from(managerAccounts)
+          .innerJoin(managers, eq(managers.id, managerAccounts.managerId))
+          .where(eq(managerAccounts.userId, user.id))
+          .limit(1),
+        DB_WAIT_MS,
+        [] as {
+          userId: string;
+          email: string;
+          managerId: number;
+          displayName: string;
+          fplEntryId: number | null;
+        }[],
+        "getVerifiedManager",
+      );
 
-    if (!row || row.fplEntryId == null) return null;
+      const row = rows[0];
+      if (!row || row.fplEntryId == null) return null;
 
-    return {
-      userId: row.userId,
-      email: row.email,
-      managerId: row.managerId,
-      displayName: row.displayName,
-      fplEntryId: row.fplEntryId,
-    };
-  } catch (error) {
-    console.error("[auth] getVerifiedManager failed", error);
-    return null;
-  }
-}
+      return {
+        userId: row.userId,
+        email: row.email,
+        managerId: row.managerId,
+        displayName: row.displayName,
+        fplEntryId: row.fplEntryId,
+      };
+    } catch (error) {
+      console.error("[auth] getVerifiedManager failed", error);
+      return null;
+    }
+  },
+);
 
-export async function getAuthStatus(): Promise<{
+export const getAuthStatus = cache(async (): Promise<{
   signedIn: boolean;
   email: string | null;
   verified: boolean;
   isAdmin: boolean;
   manager: VerifiedManager | null;
-}> {
+}> => {
   try {
     const user = await getAuthUser();
     if (!user) {
@@ -99,7 +124,7 @@ export async function getAuthStatus(): Promise<{
       manager: null,
     };
   }
-}
+});
 
 /** Redirect non-admins away from admin routes. */
 export async function requireAdmin() {

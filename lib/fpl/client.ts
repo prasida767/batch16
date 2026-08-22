@@ -3,6 +3,8 @@ import "server-only";
 import { FPL_BASE_URL, FPL_CACHE_TAGS } from "./config";
 import { FplApiError } from "./errors";
 
+const FPL_FETCH_MS = 8_000;
+
 export interface FplRequestOptions {
   /** Next.js fetch revalidate window in seconds. */
   revalidate?: number;
@@ -23,13 +25,21 @@ export async function fplFetch<T>(
         Accept: "application/json",
         "User-Agent": "fpl-league/0.1 (private league tracker)",
       },
+      signal: AbortSignal.timeout(FPL_FETCH_MS),
       next: {
         revalidate: options.revalidate ?? 60,
         tags,
       },
     });
   } catch (error) {
-    const reason = error instanceof Error ? error.message : "Network error";
+    const timedOut =
+      error instanceof Error &&
+      (error.name === "TimeoutError" || error.name === "AbortError");
+    const reason = timedOut
+      ? `timed out after ${FPL_FETCH_MS}ms`
+      : error instanceof Error
+        ? error.message
+        : "Network error";
     console.error("[fpl] Request failed", { url, reason });
     throw new FplApiError(`FPL request failed: ${reason}`, 0, path);
   }

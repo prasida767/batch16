@@ -4,6 +4,27 @@ import { isAdminEmail } from "@/lib/auth/admin";
 import { getSupabaseAnonKey, getSupabaseUrl } from "@/lib/supabase/config";
 
 const PUBLIC_PREFIXES = ["/auth", "/guide"];
+const AUTH_WAIT_MS = 4000;
+
+async function getUserOrNull(
+  supabase: ReturnType<typeof createServerClient>,
+) {
+  try {
+    const result = await Promise.race([
+      supabase.auth.getUser(),
+      new Promise<never>((_, reject) => {
+        setTimeout(
+          () => reject(new Error("supabase auth timeout")),
+          AUTH_WAIT_MS,
+        );
+      }),
+    ]);
+    return result.data.user ?? null;
+  } catch (error) {
+    console.error("[auth] middleware getUser failed", error);
+    return null;
+  }
+}
 
 function isPublicPath(pathname: string): boolean {
   if (pathname === "/") return true;
@@ -66,9 +87,7 @@ export async function updateSession(request: NextRequest) {
     },
   });
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getUserOrNull(supabase);
 
   if (user && pathname === "/") {
     const redirectUrl = request.nextUrl.clone();

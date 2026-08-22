@@ -39,6 +39,8 @@ export const metadata: Metadata = {
   },
 };
 
+export const maxDuration = 30;
+
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,

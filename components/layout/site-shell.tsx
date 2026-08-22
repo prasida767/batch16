@@ -34,7 +34,36 @@ async function CelebrationSlot() {
   }
 }
 
-export async function SiteShell({ children }: { children: ReactNode }) {
+function HeaderPlaceholder() {
+  return (
+    <header className="sticky top-0 z-40 h-16 border-b border-border/60 bg-background/75" />
+  );
+}
+
+function ShellFallback({ children }: { children: ReactNode }) {
+  return (
+    <div className="app-canvas flex min-h-screen flex-col">
+      <HeaderPlaceholder />
+      <main className="flex-1">
+        <div className="mx-auto w-full max-w-6xl px-4 sm:px-6 lg:px-8">
+          {children}
+        </div>
+      </main>
+      <SiteFooter />
+    </div>
+  );
+}
+
+/** Sync wrapper so the root layout can stream HTML before auth/DB resolve. */
+export function SiteShell({ children }: { children: ReactNode }) {
+  return (
+    <Suspense fallback={<ShellFallback>{children}</ShellFallback>}>
+      <ResolvedSiteShell>{children}</ResolvedSiteShell>
+    </Suspense>
+  );
+}
+
+async function ResolvedSiteShell({ children }: { children: ReactNode }) {
   let auth: Awaited<ReturnType<typeof getAuthStatus>>;
   try {
     auth = await getAuthStatus();

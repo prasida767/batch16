@@ -6,6 +6,7 @@ import {
 import { FeatureErrorBoundary } from "@/components/error/feature-error-boundary";
 import { LeagueHub } from "@/components/league/league-hub";
 import { logAppError } from "@/lib/errors/log";
+import { raceTimeout } from "@/lib/async/timeout";
 import { getVerifiedManager } from "@/lib/auth/session";
 import { getActingManagerId } from "@/lib/challenges";
 import { getLatestDocumentaryEpisode } from "@/lib/documentary";
@@ -15,10 +16,20 @@ import { isDatabaseConfigured } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 
+export const maxDuration = 30;
+
 export default async function LeaguePage() {
   let result: Awaited<ReturnType<typeof getDashboardData>>;
   try {
-    result = await getDashboardData();
+    result = await raceTimeout(
+      getDashboardData(),
+      9_000,
+      {
+        kind: "error" as const,
+        message: "League is taking too long to load. Try refreshing.",
+      },
+      "getDashboardData",
+    );
   } catch (error) {
     logAppError("league", error);
     return (
