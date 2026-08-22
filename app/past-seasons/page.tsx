@@ -17,7 +17,6 @@ import {
   getPastSeasonsStats,
   prizeTypeLabel,
 } from "@/lib/history/queries";
-import { getAuthStatus } from "@/lib/auth/session";
 import { formatMoney } from "@/lib/prizes";
 import { cn } from "@/lib/utils";
 
@@ -31,10 +30,9 @@ export default async function PastSeasonsPage({
   const { season: seasonParam, view: viewParam } = await searchParams;
   const view = viewParam === "stats" ? "stats" : "archive";
 
-  const [result, statsResult, auth] = await Promise.all([
+  const [result, statsResult] = await Promise.all([
     getPastSeasonsData(seasonParam),
     getPastSeasonsStats(),
-    getAuthStatus(),
   ]);
 
   if (result.kind === "no_db") {
@@ -70,18 +68,12 @@ export default async function PastSeasonsPage({
             </CardDescription>
           </CardHeader>
           <CardContent>
-            {auth.isAdmin ? (
-              <Link
-                href="/admin/history"
-                className={cn(buttonVariants(), "inline-flex")}
-              >
-                Open historical import
-              </Link>
-            ) : (
-              <p className="text-sm text-muted-foreground">
-                An admin can import past seasons from the Excel archive.
-              </p>
-            )}
+            <Link
+              href="/admin/history"
+              className={cn(buttonVariants(), "inline-flex")}
+            >
+              Open historical import
+            </Link>
           </CardContent>
         </Card>
       </div>

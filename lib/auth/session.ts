@@ -75,7 +75,7 @@ export async function getAuthStatus(): Promise<{
     signedIn: true,
     email,
     verified: Boolean(manager),
-    isAdmin: isAdminEmail(user.email),
+    isAdmin: isAdminEmail(email),
     manager,
   };
 }

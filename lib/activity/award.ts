@@ -31,35 +31,38 @@ export async function awardActivityPoints(
   const db = getDb();
   const actionKey = input.actionKey?.trim() || ACTIVITY_ACTIONS.MANUAL;
 
-  // Do not use db.transaction() on Supabase's transaction pooler — BEGIN/COMMIT
-  // on max: 1 wedges the isolate and takes the whole app down (e.g. after Baaji).
-  const [manager] = await db
-    .select({
-      id: managers.id,
-      activityPoints: managers.activityPoints,
-    })
-    .from(managers)
-    .where(eq(managers.id, input.managerId))
-    .limit(1);
+  const updated = await db.transaction(async (tx) => {
+    const [manager] = await tx
+      .select({
+        id: managers.id,
+        activityPoints: managers.activityPoints,
+      })
+      .from(managers)
+      .where(eq(managers.id, input.managerId))
+      .limit(1);
 
-  if (!manager) {
-    throw new Error("Manager not found.");
-  }
+    if (!manager) {
+      throw new Error("Manager not found.");
+    }
 
-  const next = manager.activityPoints + delta;
-  await db
-    .update(managers)
-    .set({ activityPoints: next })
-    .where(eq(managers.id, input.managerId));
+    const next = manager.activityPoints + delta;
+    // Allow going negative only if intentional; clamp floor at a sane bound? User said add/subtract — allow any integer.
+    await tx
+      .update(managers)
+      .set({ activityPoints: next })
+      .where(eq(managers.id, input.managerId));
 
-  await db.insert(activityEvents).values({
-    managerId: input.managerId,
-    delta,
-    reason,
-    actionKey,
+    await tx.insert(activityEvents).values({
+      managerId: input.managerId,
+      delta,
+      reason,
+      actionKey,
+    });
+
+    return next;
   });
 
-  return { activityPoints: next };
+  return { activityPoints: updated };
 }
 
 export async function getActivityPrizeDisplay(): Promise<string> {

@@ -12,7 +12,6 @@ import {
 } from "@/components/ui/card";
 import { buttonVariants } from "@/components/ui/button";
 import { getAwardsPageData } from "@/app/social/actions";
-import { getAuthStatus } from "@/lib/auth/session";
 import { cn } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
@@ -24,12 +23,9 @@ export default async function AwardsPage({
 }) {
   const { gw } = await searchParams;
   const selected = gw ? Number(gw) : undefined;
-  const [data, auth] = await Promise.all([
-    getAwardsPageData(
-      selected && Number.isInteger(selected) ? selected : undefined,
-    ),
-    getAuthStatus(),
-  ]);
+  const data = await getAwardsPageData(
+    selected && Number.isInteger(selected) ? selected : undefined,
+  );
 
   if (data.kind === "no_db") {
     return (
@@ -57,14 +53,12 @@ export default async function AwardsPage({
           title="Weekly awards"
           description="Auto-generated after gameweeks, with room for custom shout-outs."
           actions={
-            auth.isAdmin ? (
-              <Link
-                href="/admin/awards"
-                className={cn(buttonVariants({ variant: "outline" }), "text-sm")}
-              >
-                Admin edit
-              </Link>
-            ) : undefined
+            <Link
+              href="/admin/awards"
+              className={cn(buttonVariants({ variant: "outline" }), "text-sm")}
+            >
+              Admin edit
+            </Link>
           }
         />
       </FadeIn>

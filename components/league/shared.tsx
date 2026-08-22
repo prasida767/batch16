@@ -162,7 +162,7 @@ export function RankDelta({
 export function SetupState({
   title,
   body,
-  href,
+  href = "/admin/settings",
   cta = "Prize settings",
 }: {
   title: string;
@@ -179,15 +179,13 @@ export function SetupState({
         <p className="max-w-xl text-sm leading-relaxed text-muted-foreground">
           {body}
         </p>
-        {href ? (
-          <Link
-            href={href}
-            className={cn(buttonVariants({ variant: "outline" }))}
-          >
-            <Trophy data-icon="inline-start" className="size-4" />
-            {cta}
-          </Link>
-        ) : null}
+        <Link
+          href={href}
+          className={cn(buttonVariants({ variant: "outline" }))}
+        >
+          <Trophy data-icon="inline-start" className="size-4" />
+          {cta}
+        </Link>
       </CardContent>
     </Card>
   );
