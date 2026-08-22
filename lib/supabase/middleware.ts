@@ -89,13 +89,6 @@ export async function updateSession(request: NextRequest) {
 
   const user = await getUserOrNull(supabase);
 
-  if (user && pathname === "/") {
-    const redirectUrl = request.nextUrl.clone();
-    redirectUrl.pathname = "/league";
-    redirectUrl.search = "";
-    return NextResponse.redirect(redirectUrl);
-  }
-
   if (!user && !publicPath) {
     return unauthorized(request, pathname);
   }

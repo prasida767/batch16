@@ -1,12 +1,13 @@
+import { Suspense } from "react";
 import {
   ErrorState,
   PageHeader,
+  PageSkeleton,
   SetupState,
 } from "@/components/league/shared";
 import { FeatureErrorBoundary } from "@/components/error/feature-error-boundary";
 import { MatchCentre } from "@/components/league/match-centre";
 import { logAppError } from "@/lib/errors/log";
-import { raceTimeout } from "@/lib/async/timeout";
 import { getVerifiedManager } from "@/lib/auth/session";
 import { getLiveStandingsPayload } from "@/lib/league";
 
@@ -14,18 +15,18 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 export const maxDuration = 30;
 
-export default async function LiveMatchCentrePage() {
+export default function LiveMatchCentrePage() {
+  return (
+    <Suspense fallback={<PageSkeleton variant="list" />}>
+      <LiveBody />
+    </Suspense>
+  );
+}
+
+async function LiveBody() {
   let result: Awaited<ReturnType<typeof getLiveStandingsPayload>>;
   try {
-    result = await raceTimeout(
-      getLiveStandingsPayload(),
-      9_000,
-      {
-        kind: "error" as const,
-        message: "Live standings are taking too long. Try refreshing.",
-      },
-      "getLiveStandingsPayload",
-    );
+    result = await getLiveStandingsPayload();
   } catch (error) {
     logAppError("live", error);
     return (

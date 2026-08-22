@@ -282,29 +282,53 @@ function DressingRoomChrome({
   );
 }
 
+type DressingRoomIdentity = {
+  managerId: number | null;
+  managerName: string | null;
+  avatarUrl?: string | null;
+  isAdmin?: boolean;
+};
+
+function presenceFrom(props: DressingRoomIdentity): ChatPresencePayload | null {
+  return props.managerId != null && props.managerName
+    ? {
+        managerId: props.managerId,
+        displayName: props.managerName,
+        avatarUrl: props.avatarUrl ?? null,
+        onlineAt: Date.now(),
+      }
+    : null;
+}
+
+/** Chat rail only — does not wrap page content, so auth/DB cannot block the page. */
+export function DressingRoomRail(props: DressingRoomIdentity) {
+  const pathname = usePathname();
+  if (shouldHide(pathname)) return null;
+
+  return (
+    <FeatureErrorBoundary feature="chat" variant="rail">
+      <DressingRoomProvider me={presenceFrom(props)}>
+        <DressingRoomChrome
+          managerId={props.managerId}
+          managerName={props.managerName}
+          avatarUrl={props.avatarUrl}
+          isAdmin={props.isAdmin}
+        />
+      </DressingRoomProvider>
+    </FeatureErrorBoundary>
+  );
+}
+
 export function DressingRoomLayout({
   children,
   managerId,
   managerName,
   avatarUrl,
   isAdmin,
-}: {
+}: DressingRoomIdentity & {
   children: React.ReactNode;
-  managerId: number | null;
-  managerName: string | null;
-  avatarUrl?: string | null;
-  isAdmin?: boolean;
 }) {
   const pathname = usePathname();
-  const me: ChatPresencePayload | null =
-    managerId != null && managerName
-      ? {
-          managerId,
-          displayName: managerName,
-          avatarUrl: avatarUrl ?? null,
-          onlineAt: Date.now(),
-        }
-      : null;
 
   if (shouldHide(pathname)) {
     return <>{children}</>;
@@ -313,16 +337,12 @@ export function DressingRoomLayout({
   return (
     <div className="flex min-h-0 flex-1">
       <div className="min-w-0 flex-1">{children}</div>
-      <FeatureErrorBoundary feature="chat" variant="rail">
-        <DressingRoomProvider me={me}>
-          <DressingRoomChrome
-            managerId={managerId}
-            managerName={managerName}
-            avatarUrl={avatarUrl}
-            isAdmin={isAdmin}
-          />
-        </DressingRoomProvider>
-      </FeatureErrorBoundary>
+      <DressingRoomRail
+        managerId={managerId}
+        managerName={managerName}
+        avatarUrl={avatarUrl}
+        isAdmin={isAdmin}
+      />
     </div>
   );
 }
