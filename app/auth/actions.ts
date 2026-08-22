@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import type { ActionResult } from "@/lib/admin/shared";
 import { claimManagerForCurrentUser } from "@/lib/auth/claim";
-import { getVerifiedManager } from "@/lib/auth/session";
+import { getAuthStatus } from "@/lib/auth/session";
 import { getSeasonRecapPayload } from "@/lib/onboarding/recap";
 import { hasSeenSeasonRecap } from "@/lib/onboarding/seen";
 import { createClient } from "@/lib/supabase/server";
@@ -168,15 +168,19 @@ export async function loginAction(
 
     revalidateAuthPaths();
 
-    const verified = await getVerifiedManager();
-    if (verified) {
+    const auth = await getAuthStatus();
+    if (auth.claim === "linked" && auth.manager) {
       redirect(
         await maybeRecapPath(
-          verified.managerId,
-          verified.displayName,
+          auth.manager.managerId,
+          auth.manager.displayName,
           next,
         ),
       );
+    }
+
+    if (auth.claim === "unknown") {
+      redirect(next ?? "/league");
     }
 
     redirect(
@@ -224,16 +228,6 @@ export async function claimManagerAction(
   }
 
   revalidateAuthPaths();
-
-  const verified = await getVerifiedManager();
-  if (!verified) {
-    return {
-      ok: false,
-      message:
-        "We linked your FPL manager, but the session didn’t refresh as Verified. Sign out, sign back in, and open Link manager again.",
-    };
-  }
-
   redirect(recapRedirect(next, true));
 }
 

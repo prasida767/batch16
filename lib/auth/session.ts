@@ -9,7 +9,6 @@ import { isSupabaseConfigured } from "@/lib/supabase/config";
 import { isAdminEmail } from "@/lib/auth/admin";
 
 const AUTH_WAIT_MS = 4000;
-const DB_WAIT_MS = 6000;
 
 export type VerifiedManager = {
   userId: string;
@@ -18,6 +17,14 @@ export type VerifiedManager = {
   displayName: string;
   fplEntryId: number;
 };
+
+/** Do not treat a slow/failed DB read as "unlinked" — that re-prompts verified users. */
+export type ClaimState = "linked" | "unlinked" | "unknown";
+
+type ManagerLookup =
+  | { kind: "verified"; manager: VerifiedManager }
+  | { kind: "unlinked" }
+  | { kind: "unavailable" };
 
 export const getAuthUser = cache(async () => {
   try {
@@ -38,52 +45,49 @@ export const getAuthUser = cache(async () => {
   }
 });
 
-/** Session user linked to a verified league manager, or null. */
-export const getVerifiedManager = cache(
-  async (): Promise<VerifiedManager | null> => {
-    try {
-      const user = await getAuthUser();
-      if (!user || !isDatabaseConfigured()) return null;
+const lookupVerifiedManager = cache(async (): Promise<ManagerLookup> => {
+  const user = await getAuthUser();
+  if (!user) return { kind: "unlinked" };
+  if (!isDatabaseConfigured()) return { kind: "unavailable" };
 
-      const db = getDb();
-      const rows = await raceTimeout(
-        db
-          .select({
-            userId: managerAccounts.userId,
-            email: managerAccounts.email,
-            managerId: managerAccounts.managerId,
-            displayName: managers.displayName,
-            fplEntryId: managers.fplEntryId,
-          })
-          .from(managerAccounts)
-          .innerJoin(managers, eq(managers.id, managerAccounts.managerId))
-          .where(eq(managerAccounts.userId, user.id))
-          .limit(1),
-        DB_WAIT_MS,
-        [] as {
-          userId: string;
-          email: string;
-          managerId: number;
-          displayName: string;
-          fplEntryId: number | null;
-        }[],
-        "getVerifiedManager",
-      );
+  try {
+    const db = getDb();
+    const [row] = await db
+      .select({
+        userId: managerAccounts.userId,
+        email: managerAccounts.email,
+        managerId: managerAccounts.managerId,
+        displayName: managers.displayName,
+        fplEntryId: managers.fplEntryId,
+      })
+      .from(managerAccounts)
+      .innerJoin(managers, eq(managers.id, managerAccounts.managerId))
+      .where(eq(managerAccounts.userId, user.id))
+      .limit(1);
 
-      const row = rows[0];
-      if (!row || row.fplEntryId == null) return null;
+    if (!row || row.fplEntryId == null) return { kind: "unlinked" };
 
-      return {
+    return {
+      kind: "verified",
+      manager: {
         userId: row.userId,
         email: row.email,
         managerId: row.managerId,
         displayName: row.displayName,
         fplEntryId: row.fplEntryId,
-      };
-    } catch (error) {
-      console.error("[auth] getVerifiedManager failed", error);
-      return null;
-    }
+      },
+    };
+  } catch (error) {
+    console.error("[auth] getVerifiedManager failed", error);
+    return { kind: "unavailable" };
+  }
+});
+
+/** Session user linked to a verified league manager, or null. */
+export const getVerifiedManager = cache(
+  async (): Promise<VerifiedManager | null> => {
+    const lookup = await lookupVerifiedManager();
+    return lookup.kind === "verified" ? lookup.manager : null;
   },
 );
 
@@ -91,6 +95,7 @@ export const getAuthStatus = cache(async (): Promise<{
   signedIn: boolean;
   email: string | null;
   verified: boolean;
+  claim: ClaimState;
   isAdmin: boolean;
   manager: VerifiedManager | null;
 }> => {
@@ -101,16 +106,24 @@ export const getAuthStatus = cache(async (): Promise<{
         signedIn: false,
         email: null,
         verified: false,
+        claim: "unlinked",
         isAdmin: false,
         manager: null,
       };
     }
-    const manager = await getVerifiedManager();
-    const email = user.email ?? manager?.email ?? null;
+    const lookup = await lookupVerifiedManager();
+    const manager = lookup.kind === "verified" ? lookup.manager : null;
+    const claim: ClaimState =
+      lookup.kind === "verified"
+        ? "linked"
+        : lookup.kind === "unlinked"
+          ? "unlinked"
+          : "unknown";
     return {
       signedIn: true,
-      email,
-      verified: Boolean(manager),
+      email: user.email ?? manager?.email ?? null,
+      verified: lookup.kind === "verified",
+      claim,
       isAdmin: isAdminEmail(user.email),
       manager,
     };
@@ -120,6 +133,7 @@ export const getAuthStatus = cache(async (): Promise<{
       signedIn: false,
       email: null,
       verified: false,
+      claim: "unknown",
       isAdmin: false,
       manager: null,
     };

@@ -73,6 +73,7 @@ async function ResolvedSiteShell({ children }: { children: ReactNode }) {
       signedIn: false,
       email: null,
       verified: false,
+      claim: "unknown",
       isAdmin: false,
       manager: null,
     };
@@ -81,7 +82,7 @@ async function ResolvedSiteShell({ children }: { children: ReactNode }) {
   const authLabel =
     auth.manager?.displayName ?? (auth.signedIn ? auth.email : null);
   const managerId = auth.manager?.managerId ?? null;
-  const needsClaim = auth.signedIn && !auth.verified;
+  const needsClaim = auth.claim === "unlinked";
 
   const path = await currentPathname();
   const cinematic =

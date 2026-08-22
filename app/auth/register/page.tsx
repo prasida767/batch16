@@ -20,14 +20,15 @@ export default async function RegisterPage({
   const params = await searchParams;
   const nextPath = safeNext(params.next);
 
-  if (auth.verified) redirect(nextPath ?? "/league");
-  if (auth.signedIn) {
+  if (auth.claim === "linked") redirect(nextPath ?? "/league");
+  if (auth.signedIn && auth.claim === "unlinked") {
     redirect(
       nextPath
         ? `/auth/claim?next=${encodeURIComponent(nextPath)}`
         : "/auth/claim",
     );
   }
+  if (auth.signedIn) redirect(nextPath ?? "/league");
 
   return (
     <div className="space-y-8 py-8 sm:py-10">
