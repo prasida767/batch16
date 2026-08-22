@@ -3,6 +3,7 @@ import "server-only";
 import { cache } from "react";
 import { eq, isNotNull } from "drizzle-orm";
 import { raceTimeout } from "@/lib/async/timeout";
+import { isNextControlFlowError } from "@/lib/errors/log";
 import { getDb, isDatabaseConfigured, managerAccounts, managers } from "@/lib/db";
 import { createClient } from "@/lib/supabase/server";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
@@ -40,6 +41,7 @@ export const getAuthUser = cache(async () => {
       "getAuthUser",
     );
   } catch (error) {
+    if (isNextControlFlowError(error)) throw error;
     console.error("[auth] getAuthUser failed", error);
     return null;
   }
@@ -78,6 +80,7 @@ const lookupVerifiedManager = cache(async (): Promise<ManagerLookup> => {
       },
     };
   } catch (error) {
+    if (isNextControlFlowError(error)) throw error;
     console.error("[auth] getVerifiedManager failed", error);
     return { kind: "unavailable" };
   }
@@ -128,6 +131,7 @@ export const getAuthStatus = cache(async (): Promise<{
       manager,
     };
   } catch (error) {
+    if (isNextControlFlowError(error)) throw error;
     console.error("[auth] getAuthStatus failed", error);
     return {
       signedIn: false,

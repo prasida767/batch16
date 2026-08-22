@@ -10,7 +10,7 @@ import { PublicHeader } from "@/components/layout/public-header";
 import { SiteFooter } from "@/components/layout/site-footer";
 import { PageTransition } from "@/components/motion/page-transition";
 import { NotificationProvider } from "@/components/notifications/notification-provider";
-import { logAppError } from "@/lib/errors/log";
+import { isNextControlFlowError, logAppError } from "@/lib/errors/log";
 import { isAdminEmail } from "@/lib/auth/admin";
 import { getAuthStatus, getAuthUser } from "@/lib/auth/session";
 import { getActiveGwWinnerCelebration } from "@/lib/league/celebration";
@@ -20,7 +20,8 @@ async function currentPathname() {
   try {
     const h = await headers();
     return h.get("x-pathname") ?? "";
-  } catch {
+  } catch (error) {
+    if (isNextControlFlowError(error)) throw error;
     return "";
   }
 }
@@ -47,6 +48,7 @@ async function CelebrationSlot() {
     if (!celebration) return null;
     return <GwWinnerCelebration celebration={celebration} />;
   } catch (error) {
+    if (isNextControlFlowError(error)) throw error;
     logAppError("celebration", error);
     return null;
   }
@@ -57,6 +59,7 @@ async function AuthHeader() {
   try {
     user = await getAuthUser();
   } catch (error) {
+    if (isNextControlFlowError(error)) throw error;
     logAppError("shell", error, { source: "auth-header" });
   }
 

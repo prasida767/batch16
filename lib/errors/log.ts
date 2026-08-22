@@ -31,6 +31,23 @@ export function isNextRedirect(error: unknown): boolean {
   );
 }
 
+/**
+ * Next.js control-flow errors must propagate. Catching them during
+ * `next build` makes prerender hang until the 60s static-page timeout.
+ */
+export function isNextControlFlowError(error: unknown): boolean {
+  if (!error || typeof error !== "object" || !("digest" in error)) {
+    return false;
+  }
+  const digest = String((error as { digest?: unknown }).digest ?? "");
+  return (
+    digest === "DYNAMIC_SERVER_USAGE" ||
+    digest.startsWith("NEXT_REDIRECT") ||
+    digest.startsWith("NEXT_NOT_FOUND") ||
+    digest.startsWith("NEXT_HTTP_ERROR_FALLBACK")
+  );
+}
+
 /** Parse JSON from a fetch Response without throwing on HTML error pages. */
 export async function readResponseJson<T>(response: Response): Promise<T | null> {
   try {

@@ -1,3 +1,5 @@
+import { isNextControlFlowError } from "@/lib/errors/log";
+
 /**
  * Resolve with `fallback` if `promise` takes longer than `ms`.
  * The underlying work is not cancelled; this only unblocks the caller.
@@ -22,6 +24,7 @@ export async function raceTimeout<T>(
       promise.then(
         (value) => value,
         (error) => {
+          if (isNextControlFlowError(error)) throw error;
           console.error(
             `[batch16:timeout] ${label ?? "operation"} failed`,
             error,
