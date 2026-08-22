@@ -59,23 +59,19 @@ export async function generateAwardsForGameweek(gameweek: number) {
   await upsertAutoAwards(gameweek, awards);
 
   if (firstPublish) {
-    try {
-      const {
-        createNotificationsForManagers,
-        listNotifiableManagerIds,
-        NOTIFICATION_TYPES,
-      } = await import("@/lib/notifications");
-      const ids = await listNotifiableManagerIds();
-      await createNotificationsForManagers(ids, {
-        type: NOTIFICATION_TYPES.AWARDS_PUBLISHED,
-        title: `GW${gameweek} awards are out`,
-        body: "New weekly awards have been published — see who took the plaudits.",
-        href: "/awards",
-        meta: { gameweek },
-      });
-    } catch (error) {
-      console.error("[awards] Notify failed after generate", error);
-    }
+    const {
+      createNotificationsForManagers,
+      listNotifiableManagerIds,
+      NOTIFICATION_TYPES,
+    } = await import("@/lib/notifications");
+    const ids = await listNotifiableManagerIds();
+    await createNotificationsForManagers(ids, {
+      type: NOTIFICATION_TYPES.AWARDS_PUBLISHED,
+      title: `GW${gameweek} awards are out`,
+      body: "New weekly awards have been published — see who took the plaudits.",
+      href: "/awards",
+      meta: { gameweek },
+    });
   }
 
   return awards.length;

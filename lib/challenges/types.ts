@@ -45,15 +45,3 @@ export function stakeAmount(stakeNpr: string | null): number {
 export function isHighStake(stakeNpr: string | null): boolean {
   return stakeAmount(stakeNpr) >= HIGH_STAKE_NPR;
 }
-
-/** Either participant (or admin) can declare full-time on an accepted baaji. */
-export function canMarkBaajiWinner(args: {
-  actorId: number | null;
-  creatorId: number;
-  opponentId: number;
-  asAdmin?: boolean;
-}): boolean {
-  if (args.asAdmin) return true;
-  if (args.actorId == null) return false;
-  return args.actorId === args.creatorId || args.actorId === args.opponentId;
-}

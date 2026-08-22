@@ -1,4 +1,3 @@
-import { FeatureErrorBoundary } from "@/components/error/feature-error-boundary";
 import { DocumentaryShelf } from "@/components/documentary/documentary-shelf";
 import { getActingManagerId } from "@/lib/challenges";
 import { getLiveQuoteCandidate } from "@/lib/chat";
@@ -6,18 +5,10 @@ import { ensureChatGameweekRollover } from "@/lib/chat/rollover";
 import {
   ensureDocumentaryEpisodes,
   getDocumentaryShelf,
-  type DocumentaryShelf as DocumentaryShelfData,
 } from "@/lib/documentary";
-import { logAppError } from "@/lib/errors/log";
 import { isDatabaseConfigured } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
-
-const EMPTY_SHELF: DocumentaryShelfData = {
-  featured: null,
-  episodes: [],
-  finale: null,
-};
 
 export default async function DocumentaryPage() {
   if (!isDatabaseConfigured()) {
@@ -28,19 +19,9 @@ export default async function DocumentaryPage() {
     );
   }
 
-  try {
-    await ensureDocumentaryEpisodes();
-  } catch (error) {
-    logAppError("documentary", error, { action: "ensure" });
-  }
-
-  const viewerId = await getActingManagerId().catch(() => null);
-  let shelf = EMPTY_SHELF;
-  try {
-    shelf = await getDocumentaryShelf(viewerId);
-  } catch (error) {
-    logAppError("documentary", error, { action: "shelf" });
-  }
+  await ensureDocumentaryEpisodes();
+  const viewerId = await getActingManagerId();
+  const shelf = await getDocumentaryShelf(viewerId);
 
   let liveQuote: Awaited<ReturnType<typeof getLiveQuoteCandidate>> = null;
   try {
@@ -56,14 +37,12 @@ export default async function DocumentaryPage() {
     (featuredGw == null || featuredGw !== liveQuote.gameweek);
 
   return (
-    <FeatureErrorBoundary feature="documentary" variant="page">
-      <DocumentaryShelf
-        featured={shelf.featured}
-        episodes={shelf.episodes}
-        finale={shelf.finale}
-        canRate={viewerId != null}
-        liveQuote={showLive ? liveQuote : null}
-      />
-    </FeatureErrorBoundary>
+    <DocumentaryShelf
+      featured={shelf.featured}
+      episodes={shelf.episodes}
+      finale={shelf.finale}
+      canRate={viewerId != null}
+      liveQuote={showLive ? liveQuote : null}
+    />
   );
 }

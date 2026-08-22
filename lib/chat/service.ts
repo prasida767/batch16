@@ -4,7 +4,6 @@ import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, sql } from "drizzle
 import { awardActivityPoints } from "@/lib/activity";
 import { ACTIVITY_ACTIONS } from "@/lib/activity/types";
 import { getAuthStatus } from "@/lib/auth/session";
-import { logAppError } from "@/lib/errors/log";
 import {
   ensureChatGameweekRollover,
   purgeStaleActiveMessages,
@@ -323,70 +322,62 @@ export async function sendChatMessage(input: {
     })
     .returning({ id: chatMessages.id });
 
-  try {
-    await awardActivityPoints({
-      managerId: input.managerId,
-      delta: CHAT_POST_ACTIVITY,
-      reason: input.replyToId
-        ? `Replied in the Dressing Room (#${inserted!.id})`
-        : `Posted in the Dressing Room (#${inserted!.id})`,
-      actionKey: ACTIVITY_ACTIONS.WALL_POST,
-    });
-  } catch (error) {
-    logAppError("chat", error, { action: "activity" });
-  }
+  await awardActivityPoints({
+    managerId: input.managerId,
+    delta: CHAT_POST_ACTIVITY,
+    reason: input.replyToId
+      ? `Replied in the Dressing Room (#${inserted!.id})`
+      : `Posted in the Dressing Room (#${inserted!.id})`,
+    actionKey: ACTIVITY_ACTIONS.WALL_POST,
+  });
 
   const view = await getChatMessageById(inserted!.id, input.managerId);
   if (!view) throw new Error("Couldn't load sent message.");
 
-  try {
-    const {
-      createNotification,
-      listManagersForMentions,
-      resolveMentionedManagerIds,
-      NOTIFICATION_TYPES,
-    } = await import("@/lib/notifications");
+  const {
+    createNotification,
+    listManagersForMentions,
+    resolveMentionedManagerIds,
+    NOTIFICATION_TYPES,
+  } = await import("@/lib/notifications");
 
-    if (input.replyToId) {
-      const [parent] = await db
-        .select({
-          managerId: chatMessages.managerId,
-        })
-        .from(chatMessages)
-        .where(eq(chatMessages.id, input.replyToId))
-        .limit(1);
-      if (parent && parent.managerId !== input.managerId) {
-        await createNotification({
-          recipientManagerId: parent.managerId,
-          actorManagerId: input.managerId,
-          type: NOTIFICATION_TYPES.CHAT_REPLY,
-          title: "New reply in Dressing Room",
-          body: body.slice(0, 120),
-          href: "/dressing-room",
-          meta: { messageId: inserted!.id, replyToId: input.replyToId },
-        });
-      }
-    }
-
-    const roster = await listManagersForMentions();
-    const mentioned = resolveMentionedManagerIds(
-      body,
-      roster,
-      input.managerId,
-    );
-    for (const recipientManagerId of mentioned) {
+  if (input.replyToId) {
+    const [parent] = await db
+      .select({
+        managerId: chatMessages.managerId,
+      })
+      .from(chatMessages)
+      .where(eq(chatMessages.id, input.replyToId))
+      .limit(1);
+    if (parent && parent.managerId !== input.managerId) {
       await createNotification({
-        recipientManagerId,
+        recipientManagerId: parent.managerId,
         actorManagerId: input.managerId,
-        type: NOTIFICATION_TYPES.CHAT_MENTION,
-        title: "You were mentioned",
+        type: NOTIFICATION_TYPES.CHAT_REPLY,
+        title: "New reply in Dressing Room",
         body: body.slice(0, 120),
         href: "/dressing-room",
-        meta: { messageId: inserted!.id },
+        meta: { messageId: inserted!.id, replyToId: input.replyToId },
       });
     }
-  } catch (error) {
-    logAppError("chat", error, { action: "notify" });
+  }
+
+  const roster = await listManagersForMentions();
+  const mentioned = resolveMentionedManagerIds(
+    body,
+    roster,
+    input.managerId,
+  );
+  for (const recipientManagerId of mentioned) {
+    await createNotification({
+      recipientManagerId,
+      actorManagerId: input.managerId,
+      type: NOTIFICATION_TYPES.CHAT_MENTION,
+      title: "You were mentioned",
+      body: body.slice(0, 120),
+      href: "/dressing-room",
+      meta: { messageId: inserted!.id },
+    });
   }
 
   return view;

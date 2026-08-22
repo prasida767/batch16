@@ -6,18 +6,14 @@ let audioCtx: AudioContext | null = null;
 
 function ctx() {
   if (typeof window === "undefined") return null;
-  try {
-    if (!audioCtx) {
-      const AC =
-        window.AudioContext ||
-        (window as unknown as { webkitAudioContext: typeof AudioContext })
-          .webkitAudioContext;
-      audioCtx = new AC();
-    }
-    return audioCtx;
-  } catch {
-    return null;
+  if (!audioCtx) {
+    const AC =
+      window.AudioContext ||
+      (window as unknown as { webkitAudioContext: typeof AudioContext })
+        .webkitAudioContext;
+    audioCtx = new AC();
   }
+  return audioCtx;
 }
 
 export function readBaajiMute(): boolean {
@@ -76,33 +72,29 @@ export function playBaajiSound(
   muted: boolean,
 ) {
   if (muted || typeof window === "undefined") return;
-  try {
-    void ctx()?.resume();
+  void ctx()?.resume();
 
-    switch (kind) {
-      case "kickoff":
-        tone(220, 0.12, "triangle", 0.09);
-        setTimeout(() => tone(330, 0.18, "triangle", 0.08), 100);
-        setTimeout(() => noise(0.15, 0.05), 180);
-        break;
-      case "create":
-        tone(400, 0.1, "sine", 0.07);
-        setTimeout(() => tone(520, 0.12, "sine", 0.06), 90);
-        break;
-      case "win":
-        tone(392, 0.12, "triangle", 0.09);
-        setTimeout(() => tone(523, 0.14, "triangle", 0.08), 120);
-        setTimeout(() => tone(659, 0.22, "triangle", 0.07), 240);
-        break;
-      case "highWin":
-        tone(196, 0.2, "sawtooth", 0.08, 120);
-        setTimeout(() => tone(392, 0.15, "triangle", 0.1), 150);
-        setTimeout(() => tone(523, 0.15, "triangle", 0.09), 280);
-        setTimeout(() => tone(784, 0.35, "triangle", 0.08), 420);
-        setTimeout(() => noise(0.35, 0.08), 200);
-        break;
-    }
-  } catch {
-    // Autoplay / AudioContext failures must never break the page.
+  switch (kind) {
+    case "kickoff":
+      tone(220, 0.12, "triangle", 0.09);
+      setTimeout(() => tone(330, 0.18, "triangle", 0.08), 100);
+      setTimeout(() => noise(0.15, 0.05), 180);
+      break;
+    case "create":
+      tone(400, 0.1, "sine", 0.07);
+      setTimeout(() => tone(520, 0.12, "sine", 0.06), 90);
+      break;
+    case "win":
+      tone(392, 0.12, "triangle", 0.09);
+      setTimeout(() => tone(523, 0.14, "triangle", 0.08), 120);
+      setTimeout(() => tone(659, 0.22, "triangle", 0.07), 240);
+      break;
+    case "highWin":
+      tone(196, 0.2, "sawtooth", 0.08, 120);
+      setTimeout(() => tone(392, 0.15, "triangle", 0.1), 150);
+      setTimeout(() => tone(523, 0.15, "triangle", 0.09), 280);
+      setTimeout(() => tone(784, 0.35, "triangle", 0.08), 420);
+      setTimeout(() => noise(0.35, 0.08), 200);
+      break;
   }
 }

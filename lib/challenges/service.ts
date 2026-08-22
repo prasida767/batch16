@@ -12,7 +12,6 @@ import {
 import {
   CHALLENGE_ACTIVITY,
   CHALLENGE_STATUS,
-  canMarkBaajiWinner,
   type ChallengeView,
 } from "@/lib/challenges/types";
 
@@ -98,12 +97,6 @@ export async function createChallenge(input: {
   stakeNpr?: number | null;
   gameweek?: number | null;
 }): Promise<ChallengeView> {
-  if (!Number.isInteger(input.creatorId) || input.creatorId <= 0) {
-    throw new Error("Verify your manager account first.");
-  }
-  if (!Number.isInteger(input.opponentId) || input.opponentId <= 0) {
-    throw new Error("Pick an opponent.");
-  }
   const description = input.description.trim();
   if (description.length < 3) {
     throw new Error("Add a short description for the challenge.");
@@ -115,8 +108,8 @@ export async function createChallenge(input: {
     throw new Error("You can't challenge yourself.");
   }
 
-  const creator = await requireActingLeagueManager(input.creatorId);
-  const opponent = await requireLeagueManager(input.opponentId);
+  await requireActingLeagueManager(input.creatorId);
+  await requireLeagueManager(input.opponentId);
 
   const { checkRateLimit, RATE_LIMITS } = await import(
     "@/lib/security/rate-limit"
@@ -158,53 +151,28 @@ export async function createChallenge(input: {
     })
     .returning({ id: challenges.id });
 
-  if (!inserted) {
-    throw new Error("Couldn't save that baaji. Try again.");
-  }
+  await awardActivityPoints({
+    managerId: input.creatorId,
+    delta: CHALLENGE_ACTIVITY.CREATE,
+    reason: `Created challenge #${inserted!.id}`,
+    actionKey: ACTIVITY_ACTIONS.CHALLENGE_CREATE,
+  });
 
-  try {
-    await awardActivityPoints({
-      managerId: input.creatorId,
-      delta: CHALLENGE_ACTIVITY.CREATE,
-      reason: `Created challenge #${inserted.id}`,
-      actionKey: ACTIVITY_ACTIONS.CHALLENGE_CREATE,
-    });
-  } catch (error) {
-    console.error("[baaji] Activity points failed after create", error);
-  }
+  const [view] = await listChallenges({ ids: [inserted!.id] });
+  const challenge = view!;
 
-  const challenge: ChallengeView = {
-    id: inserted.id,
-    description: sanitizeUserText(description, 280),
-    stakeNpr: stake != null ? stake.toFixed(2) : null,
-    gameweek,
-    status: CHALLENGE_STATUS.PENDING,
-    creatorId: creator.id,
-    creatorName: creator.displayName,
-    opponentId: opponent.id,
-    opponentName: opponent.displayName,
-    winnerId: null,
-    winnerName: null,
-    createdAt: new Date(),
-    resolvedAt: null,
-  };
-
-  try {
-    const { createNotification, NOTIFICATION_TYPES } = await import(
-      "@/lib/notifications"
-    );
-    await createNotification({
-      recipientManagerId: input.opponentId,
-      actorManagerId: input.creatorId,
-      type: NOTIFICATION_TYPES.BAAJI_CHALLENGE,
-      title: "New Baaji challenge",
-      body: `${challenge.creatorName} challenged you: "${description.slice(0, 80)}"`,
-      href: "/challenges",
-      meta: { challengeId: challenge.id },
-    });
-  } catch (error) {
-    console.error("[baaji] Notify failed after create", error);
-  }
+  const { createNotification, NOTIFICATION_TYPES } = await import(
+    "@/lib/notifications"
+  );
+  await createNotification({
+    recipientManagerId: input.opponentId,
+    actorManagerId: input.creatorId,
+    type: NOTIFICATION_TYPES.BAAJI_CHALLENGE,
+    title: "New Baaji challenge",
+    body: `${challenge.creatorName} challenged you: “${description.slice(0, 80)}”`,
+    href: "/challenges",
+    meta: { challengeId: challenge.id },
+  });
 
   return challenge;
 }
@@ -214,12 +182,6 @@ export async function respondToChallenge(input: {
   actorId: number;
   accept: boolean;
 }) {
-  if (!Number.isInteger(input.challengeId) || input.challengeId <= 0) {
-    throw new Error("Challenge not found.");
-  }
-  if (!Number.isInteger(input.actorId) || input.actorId <= 0) {
-    throw new Error("Verify your manager account first.");
-  }
   const db = getDb();
   const [row] = await db
     .select()
@@ -247,16 +209,12 @@ export async function respondToChallenge(input: {
     .where(eq(challenges.id, input.challengeId));
 
   if (input.accept) {
-    try {
-      await awardActivityPoints({
-        managerId: input.actorId,
-        delta: CHALLENGE_ACTIVITY.ACCEPT,
-        reason: `Accepted challenge #${input.challengeId}`,
-        actionKey: ACTIVITY_ACTIONS.CHALLENGE_ACCEPT,
-      });
-    } catch (error) {
-      console.error("[baaji] Activity points failed after accept", error);
-    }
+    await awardActivityPoints({
+      managerId: input.actorId,
+      delta: CHALLENGE_ACTIVITY.ACCEPT,
+      reason: `Accepted challenge #${input.challengeId}`,
+      actionKey: ACTIVITY_ACTIONS.CHALLENGE_ACCEPT,
+    });
   }
 
   const [actor] = await db
@@ -265,26 +223,22 @@ export async function respondToChallenge(input: {
     .where(eq(managers.id, input.actorId))
     .limit(1);
 
-  try {
-    const { createNotification, NOTIFICATION_TYPES } = await import(
-      "@/lib/notifications"
-    );
-    await createNotification({
-      recipientManagerId: row.creatorId,
-      actorManagerId: input.actorId,
-      type: input.accept
-        ? NOTIFICATION_TYPES.BAAJI_ACCEPTED
-        : NOTIFICATION_TYPES.BAAJI_DECLINED,
-      title: input.accept ? "Baaji accepted" : "Baaji declined",
-      body: input.accept
-        ? `${actor?.displayName ?? "Your opponent"} accepted your challenge.`
-        : `${actor?.displayName ?? "Your opponent"} declined your challenge.`,
-      href: "/challenges",
-      meta: { challengeId: input.challengeId },
-    });
-  } catch (error) {
-    console.error("[baaji] Notify failed after respond", error);
-  }
+  const { createNotification, NOTIFICATION_TYPES } = await import(
+    "@/lib/notifications"
+  );
+  await createNotification({
+    recipientManagerId: row.creatorId,
+    actorManagerId: input.actorId,
+    type: input.accept
+      ? NOTIFICATION_TYPES.BAAJI_ACCEPTED
+      : NOTIFICATION_TYPES.BAAJI_DECLINED,
+    title: input.accept ? "Baaji accepted" : "Baaji declined",
+    body: input.accept
+      ? `${actor?.displayName ?? "Your opponent"} accepted your challenge.`
+      : `${actor?.displayName ?? "Your opponent"} declined your challenge.`,
+    href: "/challenges",
+    meta: { challengeId: input.challengeId },
+  });
 }
 
 export async function resolveChallenge(input: {
@@ -293,12 +247,6 @@ export async function resolveChallenge(input: {
   winnerId: number;
   asAdmin?: boolean;
 }) {
-  if (!Number.isInteger(input.challengeId) || input.challengeId <= 0) {
-    throw new Error("Challenge not found.");
-  }
-  if (!Number.isInteger(input.winnerId) || input.winnerId <= 0) {
-    throw new Error("Pick a winner.");
-  }
   const db = getDb();
   const [row] = await db
     .select()
@@ -311,15 +259,8 @@ export async function resolveChallenge(input: {
     throw new Error("Only accepted challenges can be resolved.");
   }
 
-  if (
-    !canMarkBaajiWinner({
-      actorId: input.actorId,
-      creatorId: row.creatorId,
-      opponentId: row.opponentId,
-      asAdmin: input.asAdmin,
-    })
-  ) {
-    throw new Error("Only the two managers (or admin) can mark the winner.");
+  if (!input.asAdmin && row.creatorId !== input.actorId) {
+    throw new Error("Only the creator (or admin) can mark the winner.");
   }
 
   if (
@@ -345,26 +286,22 @@ export async function resolveChallenge(input: {
     .where(eq(managers.id, input.winnerId))
     .limit(1);
 
-  try {
-    const { createNotification, NOTIFICATION_TYPES } = await import(
-      "@/lib/notifications"
-    );
-    for (const recipientManagerId of [row.creatorId, row.opponentId]) {
-      const youWon = recipientManagerId === input.winnerId;
-      await createNotification({
-        recipientManagerId,
-        actorManagerId: input.actorId,
-        type: NOTIFICATION_TYPES.BAAJI_RESULT,
-        title: youWon ? "You won the Baaji" : "Baaji full-time",
-        body: youWon
-          ? "Full-time — you take the win."
-          : `${winner?.displayName ?? "A manager"} won the baaji.`,
-        href: "/challenges",
-        meta: { challengeId: input.challengeId, winnerId: input.winnerId },
-      });
-    }
-  } catch (error) {
-    console.error("[baaji] Notify failed after resolve", error);
+  const { createNotification, NOTIFICATION_TYPES } = await import(
+    "@/lib/notifications"
+  );
+  for (const recipientManagerId of [row.creatorId, row.opponentId]) {
+    const youWon = recipientManagerId === input.winnerId;
+    await createNotification({
+      recipientManagerId,
+      actorManagerId: input.actorId,
+      type: NOTIFICATION_TYPES.BAAJI_RESULT,
+      title: youWon ? "You won the Baaji" : "Baaji full-time",
+      body: youWon
+        ? "Full-time — you take the win."
+        : `${winner?.displayName ?? "A manager"} won the baaji.`,
+      href: "/challenges",
+      meta: { challengeId: input.challengeId, winnerId: input.winnerId },
+    });
   }
 }
 
@@ -401,13 +338,7 @@ export async function cancelChallenge(input: {
 }
 
 export async function getChallengesBoard(actingManagerId: number | null) {
-  let all: ChallengeView[] = [];
-  try {
-    all = await listChallenges();
-  } catch (error) {
-    console.error("[baaji] List challenges failed", error);
-    all = [];
-  }
+  const all = await listChallenges();
 
   /** Pending challenges waiting on the signed-in manager. */
   const awaitingYou =

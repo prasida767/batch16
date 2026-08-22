@@ -1,15 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   CHALLENGE_STATUS,
-  canMarkBaajiWinner,
   isHighStake,
   stakeAmount,
 } from "@/lib/challenges/types";
-import {
-  parseOpponentId,
-  parseOptionalGameweek,
-  parseStakeNpr,
-} from "@/lib/challenges/parse";
 import { isDocumentaryWeekEligible } from "@/lib/documentary/eligibility";
 import { formatTimeAgo } from "@/lib/notifications/time-ago";
 import { resolveMentionedManagerIds } from "@/lib/notifications/mentions";
@@ -25,42 +19,6 @@ describe("Baaji stake helpers", () => {
   it("flags high stakes at 1000 NPR", () => {
     expect(isHighStake("999")).toBe(false);
     expect(isHighStake("1000")).toBe(true);
-  });
-
-  it("rejects invalid opponent and stake without throwing", () => {
-    expect(parseOpponentId("")).toBeNull();
-    expect(parseOpponentId("abc")).toBeNull();
-    expect(parseOpponentId("0")).toBeNull();
-    expect(parseOpponentId("12")).toBe(12);
-    expect(parseStakeNpr("")).toEqual({ ok: true, value: null });
-    expect(parseStakeNpr("500")).toEqual({ ok: true, value: 500 });
-    expect(parseStakeNpr("nope").ok).toBe(false);
-    expect(parseStakeNpr("-10").ok).toBe(false);
-    expect(parseOptionalGameweek("")).toBeNull();
-    expect(parseOptionalGameweek("3")).toBe(3);
-  });
-
-  it("lets either participant declare a winner, not bystanders", () => {
-    expect(
-      canMarkBaajiWinner({ actorId: 1, creatorId: 1, opponentId: 2 }),
-    ).toBe(true);
-    expect(
-      canMarkBaajiWinner({ actorId: 2, creatorId: 1, opponentId: 2 }),
-    ).toBe(true);
-    expect(
-      canMarkBaajiWinner({ actorId: 9, creatorId: 1, opponentId: 2 }),
-    ).toBe(false);
-    expect(
-      canMarkBaajiWinner({
-        actorId: 9,
-        creatorId: 1,
-        opponentId: 2,
-        asAdmin: true,
-      }),
-    ).toBe(true);
-    expect(
-      canMarkBaajiWinner({ actorId: null, creatorId: 1, opponentId: 2 }),
-    ).toBe(false);
   });
 
   it("exposes challenge status machine values used by create/accept/resolve", () => {

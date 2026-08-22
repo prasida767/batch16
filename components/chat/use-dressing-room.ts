@@ -13,7 +13,6 @@ import {
   type TauntActionId,
   type TauntEvent,
 } from "@/lib/chat/taunts";
-import { logAppError, readResponseJson } from "@/lib/errors/log";
 import { createClient } from "@/lib/supabase/client";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 
@@ -218,13 +217,7 @@ export function useDressingRoom(
       const qs =
         afterId != null && afterId > 0 ? `?after=${afterId}` : "";
       const res = await fetch(`/api/chat${qs}`, { cache: "no-store" });
-      const data = await readResponseJson<
-        ChatOk | { kind: "error"; message: string }
-      >(res);
-      if (!data) {
-        setError("Couldn't reach the Dressing Room.");
-        return;
-      }
+      const data = (await res.json()) as ChatOk | { kind: "error"; message: string };
       if (data.kind !== "ok") {
         setError(data.message);
         return;
@@ -252,8 +245,7 @@ export function useDressingRoom(
           setUnread(newer);
         }
       }
-    } catch (error) {
-      logAppError("chat", error, { action: "load" });
+    } catch {
       setError("Couldn't reach the Dressing Room.");
     } finally {
       setLoading(false);
@@ -390,17 +382,10 @@ export function useDressingRoom(
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ body, replyToId }),
       });
-      const data = await readResponseJson<
+      const data = (await res.json()) as
         | { kind: "ok"; message: ChatMessageView }
-        | { kind: "error"; message: string }
-      >(res);
-      if (!data || data.kind !== "ok") {
-        throw new Error(
-          data && data.kind === "error"
-            ? data.message
-            : "Couldn't send that message.",
-        );
-      }
+        | { kind: "error"; message: string };
+      if (data.kind !== "ok") throw new Error(data.message);
       applyIncoming(data.message, "message");
       broadcast({ type: "message", message: data.message });
       markSeen([data.message]);
@@ -416,15 +401,10 @@ export function useDressingRoom(
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ messageId, emoji }),
       });
-      const data = await readResponseJson<
+      const data = (await res.json()) as
         | { kind: "ok"; message: ChatMessageView }
-        | { kind: "error"; message: string }
-      >(res);
-      if (!data || data.kind !== "ok") {
-        throw new Error(
-          data && data.kind === "error" ? data.message : "Couldn't react.",
-        );
-      }
+        | { kind: "error"; message: string };
+      if (data.kind !== "ok") throw new Error(data.message);
       applyIncoming(data.message, "reaction");
       broadcast({ type: "reaction", message: data.message });
       return data.message;
@@ -439,15 +419,10 @@ export function useDressingRoom(
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ messageId }),
       });
-      const data = await readResponseJson<
+      const data = (await res.json()) as
         | { kind: "ok"; message: ChatMessageView }
-        | { kind: "error"; message: string }
-      >(res);
-      if (!data || data.kind !== "ok") {
-        throw new Error(
-          data && data.kind === "error" ? data.message : "Couldn't pin.",
-        );
-      }
+        | { kind: "error"; message: string };
+      if (data.kind !== "ok") throw new Error(data.message);
       applyIncoming(data.message, "pin");
       broadcast({ type: "pin", message: data.message });
       return data.message;

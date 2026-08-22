@@ -35,9 +35,6 @@ export function getDb(): Db {
         idle_timeout: 20,
         max_lifetime: 60 * 5,
         connect_timeout: 10,
-        connection: {
-          statement_timeout: 8000,
-        },
       }),
     );
   }

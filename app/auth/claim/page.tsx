@@ -41,7 +41,7 @@ export default async function ClaimPage({
     );
   }
 
-  if (auth.claim === "linked" && auth.manager) {
+  if (auth.verified && auth.manager) {
     const destination = nextPath
       ? `/onboarding/recap?force=1&next=${encodeURIComponent(nextPath)}`
       : "/onboarding/recap?force=1";
@@ -87,33 +87,6 @@ export default async function ClaimPage({
     );
   }
 
-  if (auth.claim === "unknown") {
-    return (
-      <div className="mx-auto max-w-md space-y-6 py-8 sm:py-10">
-        <PageHeader
-          eyebrow="Account"
-          title="Couldn't confirm your manager"
-          description="Your session is signed in, but we couldn't load the league link just now. Refresh — don't claim again if you already did."
-        />
-        <Card>
-          <CardContent className="flex flex-wrap gap-2 pt-6">
-            <Link
-              href={nextPath ?? "/league"}
-              className={cn(buttonVariants({ variant: "default" }))}
-            >
-              Back to league
-            </Link>
-            <form action={signOutAction}>
-              <Button type="submit" variant="ghost">
-                Sign out
-              </Button>
-            </form>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
-
   let clubs = mergeClubsFromBootstrap([]);
   try {
     const bootstrap = await getBootstrapStatic();
@@ -127,7 +100,7 @@ export default async function ClaimPage({
       <PageHeader
         eyebrow="Account"
         title="Link your manager"
-        description="Match your FPL team with your name, team name, or entry ID, then pick the club you support."
+        description="Match your name and FPL team, then choose the Premier League club you support for your crest avatar."
       />
       <ClaimForm email={auth.email ?? ""} nextPath={nextPath} clubs={clubs} />
       <form action={signOutAction} className="mx-auto max-w-md text-center">

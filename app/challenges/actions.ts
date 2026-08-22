@@ -16,15 +16,12 @@ import {
 import { requireAdmin } from "@/lib/auth/session";
 import { isDatabaseConfigured } from "@/lib/db";
 import { getCurrentGameweek } from "@/lib/fpl";
-import {
-  parseChallengeId,
-  parseOpponentId,
-  parseOptionalGameweek,
-  parseStakeNpr,
-} from "@/lib/challenges/parse";
 
 function revalidateChallengePaths() {
   revalidatePath("/challenges");
+  revalidatePath("/activity");
+  revalidatePath("/admin/challenges");
+  revalidatePath("/admin/activity");
 }
 
 export async function getChallengesPageData() {
@@ -32,35 +29,24 @@ export async function getChallengesPageData() {
     return { kind: "no_db" as const };
   }
 
-  try {
-    const actingManagerId = await getActingManagerId();
-    const managers = await listChallengeManagers();
-    const currentGameweek = await getCurrentGameweek().catch(() => null);
+  const actingManagerId = await getActingManagerId();
+  const managers = await listChallengeManagers();
+  const currentGameweek = await getCurrentGameweek().catch(() => null);
 
-    const board = await getChallengesBoard(actingManagerId);
-    const acting =
-      actingManagerId != null
-        ? managers.find((m) => m.id === actingManagerId) ?? null
-        : null;
+  const board = await getChallengesBoard(actingManagerId);
+  const acting =
+    actingManagerId != null
+      ? managers.find((m) => m.id === actingManagerId) ?? null
+      : null;
 
-    return {
-      kind: "ok" as const,
-      actingManagerId,
-      acting,
-      managers,
-      currentGameweek,
-      ...board,
-    };
-  } catch (error) {
-    console.error("[baaji] Page data failed", error);
-    return {
-      kind: "error" as const,
-      message:
-        error instanceof Error
-          ? error.message
-          : "Couldn't load Baaji. Try refreshing.",
-    };
-  }
+  return {
+    kind: "ok" as const,
+    actingManagerId,
+    acting,
+    managers,
+    currentGameweek,
+    ...board,
+  };
 }
 
 /** @deprecated Cookie identity removed — use /auth/register. */
@@ -82,21 +68,17 @@ export async function createChallengeAction(
       return { ok: false, message: "Verify your manager account first." };
     }
 
-    const opponentId = parseOpponentId(formData.get("opponentId"));
-    if (opponentId == null) {
-      return { ok: false, message: "Pick an opponent." };
-    }
+    const opponentId = Number(formData.get("opponentId"));
     const description = String(formData.get("description") ?? "");
-    const stake = parseStakeNpr(formData.get("stakeNpr"));
-    if (!stake.ok) return { ok: false, message: stake.message };
-    const gameweek = parseOptionalGameweek(formData.get("gameweek"));
+    const stakeRaw = String(formData.get("stakeNpr") ?? "").trim();
+    const gwRaw = String(formData.get("gameweek") ?? "").trim();
 
     await createChallenge({
       creatorId,
       opponentId,
       description,
-      stakeNpr: stake.value,
-      gameweek,
+      stakeNpr: stakeRaw ? Number(stakeRaw) : null,
+      gameweek: gwRaw ? Number(gwRaw) : null,
     });
 
     revalidateChallengePaths();
@@ -121,10 +103,7 @@ export async function respondChallengeAction(
     if (actorId == null) {
       return { ok: false, message: "Verify your manager account first." };
     }
-    const challengeId = parseChallengeId(formData.get("challengeId"));
-    if (challengeId == null) {
-      return { ok: false, message: "Challenge not found." };
-    }
+    const challengeId = Number(formData.get("challengeId"));
     const accept = String(formData.get("decision")) === "accept";
 
     await respondToChallenge({ challengeId, actorId, accept });
@@ -152,14 +131,8 @@ export async function resolveChallengeAction(
     if (actorId == null) {
       return { ok: false, message: "Verify your manager account first." };
     }
-    const challengeId = parseChallengeId(formData.get("challengeId"));
-    const winnerId = parseOpponentId(formData.get("winnerId"));
-    if (challengeId == null) {
-      return { ok: false, message: "Challenge not found." };
-    }
-    if (winnerId == null) {
-      return { ok: false, message: "Pick a winner." };
-    }
+    const challengeId = Number(formData.get("challengeId"));
+    const winnerId = Number(formData.get("winnerId"));
 
     await resolveChallenge({ challengeId, actorId, winnerId });
     revalidateChallengePaths();
@@ -181,10 +154,7 @@ export async function cancelChallengeAction(
     if (actorId == null) {
       return { ok: false, message: "Verify your manager account first." };
     }
-    const challengeId = parseChallengeId(formData.get("challengeId"));
-    if (challengeId == null) {
-      return { ok: false, message: "Challenge not found." };
-    }
+    const challengeId = Number(formData.get("challengeId"));
     await cancelChallenge({ challengeId, actorId });
     revalidateChallengePaths();
     return { ok: true, message: "Baaji cancelled." };
@@ -200,20 +170,9 @@ export async function cancelChallengeAction(
 export async function getAdminChallengesData() {
   await requireAdmin();
   if (!isDatabaseConfigured()) return { kind: "no_db" as const };
-  try {
-    const accepted = await listAcceptedChallengesForAdmin();
-    const season = await listAllChallengesForAdmin();
-    return { kind: "ok" as const, accepted, season };
-  } catch (error) {
-    console.error("[admin] Baaji list failed", error);
-    return {
-      kind: "error" as const,
-      message:
-        error instanceof Error
-          ? error.message
-          : "Couldn't load Baaji. Try refreshing.",
-    };
-  }
+  const accepted = await listAcceptedChallengesForAdmin();
+  const season = await listAllChallengesForAdmin();
+  return { kind: "ok" as const, accepted, season };
 }
 
 export async function adminResolveChallengeAction(
@@ -221,11 +180,8 @@ export async function adminResolveChallengeAction(
 ): Promise<ActionResult> {
   try {
     await requireAdmin();
-    const challengeId = parseChallengeId(formData.get("challengeId"));
-    const winnerId = parseOpponentId(formData.get("winnerId"));
-    if (challengeId == null || winnerId == null) {
-      return { ok: false, message: "Challenge not found or not accepted." };
-    }
+    const challengeId = Number(formData.get("challengeId"));
+    const winnerId = Number(formData.get("winnerId"));
     const accepted = await listAcceptedChallengesForAdmin();
     const challenge = accepted.find((c) => c.id === challengeId);
     if (!challenge) {

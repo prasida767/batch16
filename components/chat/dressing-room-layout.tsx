@@ -5,11 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { ChevronRight, Maximize2, MessageSquareText, Shirt, X } from "lucide-react";
-import { FeatureErrorBoundary } from "@/components/error/feature-error-boundary";
-import {
-  DressingRoomProvider,
-  useDressingRoomContext,
-} from "@/components/chat/dressing-room-context";
+import { DressingRoomProvider, useDressingRoomContext } from "@/components/chat/dressing-room-context";
 import { DressingRoomPanel } from "@/components/chat/dressing-room-panel";
 import { readChatOpen, writeChatOpen } from "@/components/chat/use-dressing-room";
 import { Button } from "@/components/ui/button";
@@ -33,11 +29,13 @@ function shouldHide(pathname: string) {
 }
 
 function DressingRoomChrome({
+  children,
   managerId,
   managerName,
   avatarUrl,
   isAdmin,
 }: {
+  children: React.ReactNode;
   managerId: number | null;
   managerName: string | null;
   avatarUrl?: string | null;
@@ -86,7 +84,7 @@ function DressingRoomChrome({
   }, [fullscreen]);
 
   if (shouldHide(pathname)) {
-    return null;
+    return <>{children}</>;
   }
 
   const panelProps = {
@@ -97,7 +95,9 @@ function DressingRoomChrome({
   };
 
   return (
-    <>
+    <div className="flex min-h-0 flex-1">
+      <div className="min-w-0 flex-1">{children}</div>
+
       <aside
         className={cn(
           "relative hidden shrink-0 border-l border-border/60 transition-[width] duration-300 ease-out lg:block",
@@ -278,44 +278,7 @@ function DressingRoomChrome({
           Full Dressing Room page
         </Link>
       </div>
-    </>
-  );
-}
-
-type DressingRoomIdentity = {
-  managerId: number | null;
-  managerName: string | null;
-  avatarUrl?: string | null;
-  isAdmin?: boolean;
-};
-
-function presenceFrom(props: DressingRoomIdentity): ChatPresencePayload | null {
-  return props.managerId != null && props.managerName
-    ? {
-        managerId: props.managerId,
-        displayName: props.managerName,
-        avatarUrl: props.avatarUrl ?? null,
-        onlineAt: Date.now(),
-      }
-    : null;
-}
-
-/** Chat rail only — does not wrap page content, so auth/DB cannot block the page. */
-export function DressingRoomRail(props: DressingRoomIdentity) {
-  const pathname = usePathname();
-  if (shouldHide(pathname)) return null;
-
-  return (
-    <FeatureErrorBoundary feature="chat" variant="rail">
-      <DressingRoomProvider me={presenceFrom(props)}>
-        <DressingRoomChrome
-          managerId={props.managerId}
-          managerName={props.managerName}
-          avatarUrl={props.avatarUrl}
-          isAdmin={props.isAdmin}
-        />
-      </DressingRoomProvider>
-    </FeatureErrorBoundary>
+    </div>
   );
 }
 
@@ -325,24 +288,33 @@ export function DressingRoomLayout({
   managerName,
   avatarUrl,
   isAdmin,
-}: DressingRoomIdentity & {
+}: {
   children: React.ReactNode;
+  managerId: number | null;
+  managerName: string | null;
+  avatarUrl?: string | null;
+  isAdmin?: boolean;
 }) {
-  const pathname = usePathname();
-
-  if (shouldHide(pathname)) {
-    return <>{children}</>;
-  }
+  const me: ChatPresencePayload | null =
+    managerId != null && managerName
+      ? {
+          managerId,
+          displayName: managerName,
+          avatarUrl: avatarUrl ?? null,
+          onlineAt: Date.now(),
+        }
+      : null;
 
   return (
-    <div className="flex min-h-0 flex-1">
-      <div className="min-w-0 flex-1">{children}</div>
-      <DressingRoomRail
+    <DressingRoomProvider me={me}>
+      <DressingRoomChrome
         managerId={managerId}
         managerName={managerName}
         avatarUrl={avatarUrl}
         isAdmin={isAdmin}
-      />
-    </div>
+      >
+        {children}
+      </DressingRoomChrome>
+    </DressingRoomProvider>
   );
 }

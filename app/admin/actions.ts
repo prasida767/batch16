@@ -87,40 +87,28 @@ export async function getAdminOverview(): Promise<{
   }
 
   const db = getDb();
-  try {
-    const [leagueManagers] = await db
-      .select({ value: count() })
-      .from(managers)
-      .where(isNotNull(managers.fplEntryId));
-    const [allManagers] = await db.select({ value: count() }).from(managers);
-    const [weeklyTotal] = await db.select({ value: count() }).from(weeklyResults);
-    const [prizeRow] = await db
-      .select({ id: prizeConfig.id })
-      .from(prizeConfig)
-      .limit(1);
+  const [[leagueManagers], [allManagers], [weeklyTotal], [prizeRow]] =
+    await Promise.all([
+      db
+        .select({ value: count() })
+        .from(managers)
+        .where(isNotNull(managers.fplEntryId)),
+      db.select({ value: count() }).from(managers),
+      db.select({ value: count() }).from(weeklyResults),
+      db.select({ id: prizeConfig.id }).from(prizeConfig).limit(1),
+    ]);
 
-    const leagueCount = leagueManagers?.value ?? 0;
-    const totalCount = allManagers?.value ?? 0;
+  const leagueCount = leagueManagers?.value ?? 0;
+  const totalCount = allManagers?.value ?? 0;
 
-    return {
-      configured: true,
-      managerCount: leagueCount,
-      historicalManagerCount: Math.max(0, totalCount - leagueCount),
-      weeklyResultCount: weeklyTotal?.value ?? 0,
-      hasPrizeConfig: Boolean(prizeRow),
-      leagueId,
-    };
-  } catch (error) {
-    console.error("[admin] Overview failed", error);
-    return {
-      configured: true,
-      managerCount: 0,
-      historicalManagerCount: 0,
-      weeklyResultCount: 0,
-      hasPrizeConfig: false,
-      leagueId,
-    };
-  }
+  return {
+    configured: true,
+    managerCount: leagueCount,
+    historicalManagerCount: Math.max(0, totalCount - leagueCount),
+    weeklyResultCount: weeklyTotal?.value ?? 0,
+    hasPrizeConfig: Boolean(prizeRow),
+    leagueId,
+  };
 }
 
 export async function syncManagersFromLeague(): Promise<ActionResult> {
@@ -887,9 +875,11 @@ export async function importHistoricalData(
 export async function getActivityAdminData() {
   await requireAdmin();
   await requireDb();
-  const managersList = await listLeagueManagersForActivity();
-  const events = await listRecentActivityEvents(50);
-  const prizeDisplay = await getActivityPrizeDisplay();
+  const [managersList, events, prizeDisplay] = await Promise.all([
+    listLeagueManagersForActivity(),
+    listRecentActivityEvents(50),
+    getActivityPrizeDisplay(),
+  ]);
   return {
     managers: managersList,
     events,

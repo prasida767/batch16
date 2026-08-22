@@ -48,8 +48,8 @@ export function AdminChallenges({
         <CardHeader>
           <CardTitle>Declare winners</CardTitle>
           <CardDescription>
-            Accepted baaji waiting for a result. Either manager can also
-            declare full-time on the public Baaji page.
+            Accepted baaji waiting for a result. Only admins can mark the
+            winner.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">

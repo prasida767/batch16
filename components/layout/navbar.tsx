@@ -6,7 +6,6 @@ import { ChevronDown, CircleHelp, Menu, Shirt, UserRound } from "lucide-react";
 import { signOutAction } from "@/app/auth/actions";
 import { Batch16Brand } from "@/components/brand/batch16-mark";
 import { ThemeToggle } from "@/components/layout/theme-toggle";
-import { FeatureErrorBoundary } from "@/components/error/feature-error-boundary";
 import { NotificationBell } from "@/components/notifications/notification-bell";
 import { Button, buttonVariants } from "@/components/ui/button";
 import {
@@ -123,11 +122,7 @@ export function Navbar({
               Link manager
             </Link>
           ) : null}
-          {showNotifications ? (
-            <FeatureErrorBoundary feature="notifications" variant="silent">
-              <NotificationBell />
-            </FeatureErrorBoundary>
-          ) : null}
+          {showNotifications ? <NotificationBell /> : null}
           <AccountMenu label={authLabel ?? null} className="hidden sm:block" />
           <ThemeToggle />
           <Sheet>

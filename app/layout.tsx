@@ -39,9 +39,6 @@ export const metadata: Metadata = {
   },
 };
 
-export const dynamic = "force-dynamic";
-export const maxDuration = 30;
-
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,

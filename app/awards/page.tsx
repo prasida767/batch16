@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { Trophy } from "lucide-react";
-import { ErrorState, PageHeader, SetupState } from "@/components/league/shared";
+import { PageHeader, SetupState } from "@/components/league/shared";
 import { FadeIn } from "@/components/motion/page-transition";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -24,10 +24,12 @@ export default async function AwardsPage({
 }) {
   const { gw } = await searchParams;
   const selected = gw ? Number(gw) : undefined;
-  const data = await getAwardsPageData(
-    selected && Number.isInteger(selected) ? selected : undefined,
-  );
-  const auth = await getAuthStatus();
+  const [data, auth] = await Promise.all([
+    getAwardsPageData(
+      selected && Number.isInteger(selected) ? selected : undefined,
+    ),
+    getAuthStatus(),
+  ]);
 
   if (data.kind === "no_db") {
     return (
@@ -41,19 +43,6 @@ export default async function AwardsPage({
           title="Connect the database"
           body="Set DATABASE_URL and run migrations first."
         />
-      </div>
-    );
-  }
-
-  if (data.kind === "error") {
-    return (
-      <div className="space-y-6">
-        <PageHeader
-          eyebrow="Fun"
-          title="Weekly awards"
-          description="Highest scores, climbs, and other weekly shout-outs."
-        />
-        <ErrorState message={data.message} />
       </div>
     );
   }

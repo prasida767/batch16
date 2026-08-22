@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import { logAppError } from "@/lib/errors/log";
 import { getUpcomingFixtures, isFplApiError } from "@/lib/fpl";
 
 export const dynamic = "force-dynamic";
@@ -15,7 +14,6 @@ export async function GET() {
       gameweeks,
     });
   } catch (error) {
-    logAppError("fixtures", error);
     const message = isFplApiError(error)
       ? error.message
       : error instanceof Error

@@ -101,15 +101,6 @@ export function LandingPage({ nextPath }: { nextPath?: string | null }) {
           >
             Sign in
           </Link>
-          <Link
-            href="/league"
-            className={cn(
-              buttonVariants({ variant: "ghost", size: "lg" }),
-              "px-5 text-muted-foreground",
-            )}
-          >
-            Open league
-          </Link>
         </motion.div>
 
         <motion.p

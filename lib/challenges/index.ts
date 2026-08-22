@@ -19,7 +19,6 @@ export {
   HIGH_STAKE_NPR,
   isHighStake,
   stakeAmount,
-  canMarkBaajiWinner,
   type ChallengeStatus,
   type ChallengeView,
 } from "@/lib/challenges/types";

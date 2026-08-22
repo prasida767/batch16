@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { Bell, CheckCheck, LoaderCircle } from "lucide-react";
-import { useNotificationsOptional } from "@/components/notifications/notification-provider";
+import { useNotifications } from "@/components/notifications/notification-provider";
 import { formatTimeAgo } from "@/lib/notifications/time-ago";
 import { Button } from "@/components/ui/button";
 import {
@@ -27,9 +27,8 @@ const TYPE_ICON: Record<string, string> = {
 };
 
 export function NotificationBell() {
-  const ctx = useNotificationsOptional();
-  if (!ctx) return null;
-  const { items, unreadCount, loading, markRead, markAllRead } = ctx;
+  const { items, unreadCount, loading, markRead, markAllRead } =
+    useNotifications();
 
   return (
     <DropdownMenu>

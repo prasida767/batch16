@@ -1,31 +1,12 @@
-import { FeatureErrorBoundary } from "@/components/error/feature-error-boundary";
 import { RivalriesBoardView } from "@/components/rivalries/rivalries-board";
 import { ErrorState, PageHeader, SetupState } from "@/components/league/shared";
 import { FadeIn } from "@/components/motion/page-transition";
-import { logAppError } from "@/lib/errors/log";
 import { getRivalriesBoard } from "@/lib/rivalries";
 
 export const dynamic = "force-dynamic";
 
 export default async function RivalriesPage() {
-  let result: Awaited<ReturnType<typeof getRivalriesBoard>>;
-  try {
-    result = await getRivalriesBoard();
-  } catch (error) {
-    logAppError("rivalries", error);
-    return (
-      <div className="space-y-6">
-        <PageHeader eyebrow="Drama" title="Rivalries" />
-        <ErrorState
-          message={
-            error instanceof Error
-              ? error.message
-              : "Couldn't load rivalries. Try refreshing."
-          }
-        />
-      </div>
-    );
-  }
+  const result = await getRivalriesBoard();
 
   if (result.kind === "no_league") {
     return (
@@ -75,9 +56,7 @@ export default async function RivalriesPage() {
           description="Who owns who across finished gameweeks — nemeses, lucky charms, and the league’s messiest feuds."
         />
       </FadeIn>
-      <FeatureErrorBoundary feature="rivalries" variant="page">
-        <RivalriesBoardView board={result.board} />
-      </FeatureErrorBoundary>
+      <RivalriesBoardView board={result.board} />
     </div>
   );
 }
