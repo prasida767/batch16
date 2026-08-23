@@ -8,6 +8,7 @@ import { ChevronRight, Maximize2, MessageSquareText, Shirt, X } from "lucide-rea
 import { DressingRoomProvider, useDressingRoomContext } from "@/components/chat/dressing-room-context";
 import { DressingRoomPanel } from "@/components/chat/dressing-room-panel";
 import { readChatOpen, writeChatOpen } from "@/components/chat/use-dressing-room";
+import { FeatureErrorBoundary } from "@/components/error-boundary";
 import { Button } from "@/components/ui/button";
 import {
   Sheet,
@@ -28,14 +29,27 @@ function shouldHide(pathname: string) {
   );
 }
 
+function ChatUnavailableRail() {
+  return (
+    <aside className="hidden w-12 shrink-0 border-l border-border/60 bg-muted/20 lg:block">
+      <div className="sticky top-14 flex h-[calc(100vh-3.5rem)] flex-col items-center py-4">
+        <span
+          className="origin-center rotate-180 text-[10px] font-semibold tracking-[0.2em] text-muted-foreground uppercase"
+          style={{ writingMode: "vertical-rl" }}
+        >
+          Chat unavailable
+        </span>
+      </div>
+    </aside>
+  );
+}
+
 function DressingRoomChrome({
-  children,
   managerId,
   managerName,
   avatarUrl,
   isAdmin,
 }: {
-  children: React.ReactNode;
   managerId: number | null;
   managerName: string | null;
   avatarUrl?: string | null;
@@ -83,10 +97,6 @@ function DressingRoomChrome({
     };
   }, [fullscreen]);
 
-  if (shouldHide(pathname)) {
-    return <>{children}</>;
-  }
-
   const panelProps = {
     managerId,
     managerName,
@@ -95,9 +105,7 @@ function DressingRoomChrome({
   };
 
   return (
-    <div className="flex min-h-0 flex-1">
-      <div className="min-w-0 flex-1">{children}</div>
-
+    <>
       <aside
         className={cn(
           "relative hidden shrink-0 border-l border-border/60 transition-[width] duration-300 ease-out lg:block",
@@ -278,7 +286,7 @@ function DressingRoomChrome({
           Full Dressing Room page
         </Link>
       </div>
-    </div>
+    </>
   );
 }
 
@@ -295,6 +303,9 @@ export function DressingRoomLayout({
   avatarUrl?: string | null;
   isAdmin?: boolean;
 }) {
+  const pathname = usePathname();
+  const enabled =
+    !pathname.startsWith("/auth") && !pathname.startsWith("/onboarding");
   const me: ChatPresencePayload | null =
     managerId != null && managerName
       ? {
@@ -305,16 +316,23 @@ export function DressingRoomLayout({
         }
       : null;
 
+  if (shouldHide(pathname)) {
+    return <>{children}</>;
+  }
+
   return (
-    <DressingRoomProvider me={me}>
-      <DressingRoomChrome
-        managerId={managerId}
-        managerName={managerName}
-        avatarUrl={avatarUrl}
-        isAdmin={isAdmin}
-      >
-        {children}
-      </DressingRoomChrome>
-    </DressingRoomProvider>
+    <div className="flex min-h-0 flex-1">
+      <div className="min-w-0 flex-1">{children}</div>
+      <FeatureErrorBoundary name="Dressing Room" fallback={<ChatUnavailableRail />}>
+        <DressingRoomProvider me={me} enabled={enabled}>
+          <DressingRoomChrome
+            managerId={managerId}
+            managerName={managerName}
+            avatarUrl={avatarUrl}
+            isAdmin={isAdmin}
+          />
+        </DressingRoomProvider>
+      </FeatureErrorBoundary>
+    </div>
   );
 }

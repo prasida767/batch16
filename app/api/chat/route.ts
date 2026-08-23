@@ -34,11 +34,22 @@ export async function GET(request: Request) {
           ? afterId
           : undefined,
       viewerId: actingManagerId,
+      skipMaintenance: Boolean(afterId),
     });
-    const pinned = afterId
-      ? []
-      : await listPinnedMessages(gameweek, actingManagerId);
-    const roster = afterId ? [] : await listChatRoster();
+    let pinned: typeof messages = [];
+    let roster: Awaited<ReturnType<typeof listChatRoster>> = [];
+    if (!afterId) {
+      try {
+        pinned = await listPinnedMessages(gameweek, actingManagerId);
+      } catch (error) {
+        console.error("[chat] pinned skipped", error);
+      }
+      try {
+        roster = await listChatRoster();
+      } catch (error) {
+        console.error("[chat] roster skipped", error);
+      }
+    }
 
     return Response.json(
       {
@@ -106,10 +117,15 @@ export async function POST(request: Request) {
       body?: string;
       replyToId?: number | null;
     };
+    const replyRaw = payload.replyToId;
+    const replyToId =
+      typeof replyRaw === "number" && Number.isInteger(replyRaw) && replyRaw > 0
+        ? replyRaw
+        : null;
     const message = await sendChatMessage({
       managerId,
       body: String(payload.body ?? ""),
-      replyToId: payload.replyToId ?? null,
+      replyToId,
     });
 
     return Response.json({ kind: "ok", message });

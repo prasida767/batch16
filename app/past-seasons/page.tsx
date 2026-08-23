@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { BarChart3, Crown, Medal, Trophy } from "lucide-react";
 import { PastSeasonsStatsBoard } from "@/components/history/past-seasons-stats";
-import { ManagerAvatar, PageHeader, SetupState } from "@/components/league/shared";
+import { ManagerAvatar, PageHeader, SetupState, ErrorState } from "@/components/league/shared";
 import { FadeIn } from "@/components/motion/page-transition";
 import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
@@ -30,10 +30,25 @@ export default async function PastSeasonsPage({
   const { season: seasonParam, view: viewParam } = await searchParams;
   const view = viewParam === "stats" ? "stats" : "archive";
 
-  const [result, statsResult] = await Promise.all([
-    getPastSeasonsData(seasonParam),
-    getPastSeasonsStats(),
-  ]);
+  let result: Awaited<ReturnType<typeof getPastSeasonsData>>;
+  let statsResult: Awaited<ReturnType<typeof getPastSeasonsStats>>;
+  try {
+    result = await getPastSeasonsData(seasonParam);
+    statsResult = await getPastSeasonsStats();
+  } catch (error) {
+    return (
+      <div className="space-y-6">
+        <PageHeader eyebrow="Archive" title="Past seasons" />
+        <ErrorState
+          message={
+            error instanceof Error
+              ? error.message
+              : "Couldn't load past seasons."
+          }
+        />
+      </div>
+    );
+  }
 
   if (result.kind === "no_db") {
     return (

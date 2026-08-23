@@ -39,7 +39,15 @@ export default async function AdminHomePage() {
     );
   }
 
-  const overview = await getAdminOverview();
+  const overview = await getAdminOverview().catch(() => ({
+    configured: false,
+    managerCount: 0,
+    verifiedCount: 0,
+    historicalManagerCount: 0,
+    weeklyResultCount: 0,
+    hasPrizeConfig: false,
+    leagueId: null as number | null,
+  }));
 
   return (
     <div className="space-y-6">
@@ -53,9 +61,14 @@ export default async function AdminHomePage() {
           label="Managers"
           value={String(overview.managerCount)}
           hint={
-            overview.historicalManagerCount > 0
-              ? `+${overview.historicalManagerCount} historical (not in pot)`
-              : undefined
+            [
+              `${overview.verifiedCount} verified in the pot`,
+              overview.historicalManagerCount > 0
+                ? `+${overview.historicalManagerCount} historical`
+                : null,
+            ]
+              .filter(Boolean)
+              .join(" · ") || undefined
           }
         />
         <Stat
@@ -76,8 +89,8 @@ export default async function AdminHomePage() {
               Managers
             </CardTitle>
             <CardDescription>
-              Sync the roster, and mark entry fees paid when someone transfers
-              their full entry fee.
+              Sync the roster. Only verified managers fund the pot; flag their
+              entry fee paid after they claim and transfer.
             </CardDescription>
           </CardHeader>
           <CardContent className="flex flex-col gap-3 sm:flex-row">

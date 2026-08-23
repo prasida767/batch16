@@ -8,6 +8,7 @@ import {
   type ChatPresencePayload,
 } from "@/lib/chat/types";
 import type { ChatRosterSeat } from "@/lib/chat/types";
+import { isChatMessageShape, maxPositiveId, upsertById } from "@/lib/chat/helpers";
 import {
   makeTauntId,
   type TauntActionId,
@@ -38,15 +39,8 @@ const TAUNT_COOLDOWN_MS = 1200;
 
 const SEEN_KEY = "batch16_dressing_room_seen";
 const OPEN_KEY = "batch16_dressing_room_open";
-const FALLBACK_POLL_MS = 25_000;
-
-function upsertMessage(list: ChatMessageView[], message: ChatMessageView) {
-  const idx = list.findIndex((m) => m.id === message.id);
-  if (idx === -1) return [...list, message].sort((a, b) => a.id - b.id);
-  const next = [...list];
-  next[idx] = message;
-  return next;
-}
+const INCREMENTAL_POLL_MS = 8_000;
+const FULL_REFRESH_MS = 45_000;
 
 export function readChatOpen(): boolean {
   if (typeof window === "undefined") return true;
@@ -69,6 +63,14 @@ function readSeenId(): number {
 function writeSeenId(id: number) {
   if (typeof window === "undefined" || id <= 0) return;
   window.localStorage.setItem(SEEN_KEY, String(id));
+}
+
+async function readJson<T>(res: Response): Promise<T | null> {
+  try {
+    return (await res.json()) as T;
+  } catch {
+    return null;
+  }
 }
 
 export function useDressingRoom(
@@ -159,12 +161,12 @@ export function useDressingRoom(
   }, []);
 
   useEffect(() => {
-    lastIdRef.current = Math.max(0, ...messages.map((m) => m.id));
+    lastIdRef.current = maxPositiveId(messages.map((m) => m.id));
   }, [messages]);
 
   const markSeen = useCallback((list: ChatMessageView[]) => {
     if (list.length === 0) return;
-    const maxId = Math.max(...list.map((m) => m.id));
+    const maxId = maxPositiveId(list.map((m) => m.id));
     if (maxId > seenRef.current) {
       seenRef.current = maxId;
       writeSeenId(maxId);
@@ -174,7 +176,8 @@ export function useDressingRoom(
 
   const applyIncoming = useCallback(
     (message: ChatMessageView, kind: "message" | "reaction" | "pin") => {
-      setMessages((prev) => upsertMessage(prev, message));
+      if (!isChatMessageShape(message)) return;
+      setMessages((prev) => upsertById(prev, message));
       if (kind === "message") {
         markSpeaking(message.managerId);
       }
@@ -183,7 +186,7 @@ export function useDressingRoom(
           if (!message.pinned) {
             return prev.filter((m) => m.id !== message.id);
           }
-          return upsertMessage(
+          return upsertById(
             prev.filter((m) => m.id !== message.id),
             message,
           );
@@ -217,9 +220,18 @@ export function useDressingRoom(
       const qs =
         afterId != null && afterId > 0 ? `?after=${afterId}` : "";
       const res = await fetch(`/api/chat${qs}`, { cache: "no-store" });
-      const data = (await res.json()) as ChatOk | { kind: "error"; message: string };
-      if (data.kind !== "ok") {
-        setError(data.message);
+      const data = (await res.json().catch(() => null)) as
+        | ChatOk
+        | { kind: "error"; message: string }
+        | null;
+      if (!data || data.kind !== "ok") {
+        if (!afterId) {
+          setError(
+            data && "message" in data
+              ? data.message
+              : "Couldn't load chat.",
+          );
+        }
         return;
       }
       setError(null);
@@ -228,11 +240,15 @@ export function useDressingRoom(
       if (afterId) {
         setMessages((prev) => {
           let next = prev;
-          for (const m of data.messages) next = upsertMessage(next, m);
+          for (const m of data.messages) {
+            if (isChatMessageShape(m)) next = upsertById(next, m);
+          }
           return next;
         });
       } else {
-        setMessages(data.messages);
+        setMessages(
+          data.messages.filter((m) => isChatMessageShape(m)),
+        );
         setPinned(data.pinned);
         if (data.roster?.length) setRoster(data.roster);
         seenRef.current = readSeenId();
@@ -271,87 +287,113 @@ export function useDressingRoom(
   }, [enabled, panelOpen, messages, markSeen]);
 
   useEffect(() => {
-    if (!enabled || !isSupabaseConfigured()) return;
+    if (!enabled) return;
 
-    const supabase = createClient();
     let cancelled = false;
+    let poll = 0;
+    let full = 0;
+    let supabase: ReturnType<typeof createClient> | null = null;
 
-    const channel = supabase.channel(CHAT_CHANNEL, {
-      config: {
-        presence: { key: me ? String(me.managerId) : "anon" },
-        broadcast: { self: false },
-      },
-    });
-    channelRef.current = channel;
+    const startPolling = () => {
+      window.clearInterval(poll);
+      window.clearInterval(full);
+      poll = window.setInterval(() => {
+        const last = lastIdRef.current;
+        void load(last > 0 ? last : undefined);
+      }, INCREMENTAL_POLL_MS);
+      full = window.setInterval(() => {
+        void load();
+      }, FULL_REFRESH_MS);
+    };
 
-    channel
-      .on("broadcast", { event: "dressing" }, ({ payload }) => {
-        const event = payload as BroadcastEvent;
-        if (event.type === "typing") {
-          if (event.managerId === me?.managerId) return;
-          setTyping((prev) => {
-            if (prev.some((t) => t.managerId === event.managerId)) return prev;
-            return [
-              ...prev,
-              {
-                managerId: event.managerId,
-                displayName: event.displayName,
-              },
-            ];
-          });
-          const existing = typingTimers.current.get(event.managerId);
-          if (existing) clearTimeout(existing);
-          typingTimers.current.set(
-            event.managerId,
-            setTimeout(() => {
-              setTyping((prev) =>
-                prev.filter((t) => t.managerId !== event.managerId),
+    startPolling();
+
+    if (isSupabaseConfigured()) {
+      try {
+        supabase = createClient();
+        const channel = supabase.channel(CHAT_CHANNEL, {
+          config: {
+            presence: { key: me ? String(me.managerId) : "anon" },
+            broadcast: { self: false },
+          },
+        });
+        channelRef.current = channel;
+
+        channel
+          .on("broadcast", { event: "dressing" }, ({ payload }) => {
+            const event = payload as BroadcastEvent;
+            if (!event || typeof event !== "object" || !("type" in event)) return;
+            if (event.type === "typing") {
+              if (event.managerId === me?.managerId) return;
+              if (!Number.isInteger(event.managerId)) return;
+              setTyping((prev) => {
+                if (prev.some((t) => t.managerId === event.managerId)) return prev;
+                return [
+                  ...prev.slice(-11),
+                  {
+                    managerId: event.managerId,
+                    displayName: String(event.displayName ?? "Manager"),
+                  },
+                ];
+              });
+              const existing = typingTimers.current.get(event.managerId);
+              if (existing) clearTimeout(existing);
+              typingTimers.current.set(
+                event.managerId,
+                setTimeout(() => {
+                  setTyping((prev) =>
+                    prev.filter((t) => t.managerId !== event.managerId),
+                  );
+                  typingTimers.current.delete(event.managerId);
+                }, 2200),
               );
-              typingTimers.current.delete(event.managerId);
-            }, 2200),
-          );
-          return;
-        }
-        if (event.type === "taunt") {
-          applyTaunt(event.taunt);
-          return;
-        }
-        applyIncoming(event.message, event.type);
-      })
-      .on("presence", { event: "sync" }, () => {
-        const state = channel.presenceState();
-        const map = new Map<number, ChatPresencePayload>();
-        for (const metas of Object.values(state)) {
-          for (const raw of metas as unknown as ChatPresencePayload[]) {
-            if (raw?.managerId != null) map.set(raw.managerId, raw);
-          }
-        }
-        setOnline(
-          [...map.values()].sort((a, b) =>
-            a.displayName.localeCompare(b.displayName),
-          ),
-        );
-      })
-      .subscribe(async (status) => {
-        if (cancelled || status !== "SUBSCRIBED") return;
-        if (me) {
-          await channel.track({
-            managerId: me.managerId,
-            displayName: me.displayName,
-            avatarUrl: me.avatarUrl,
-            onlineAt: Date.now(),
-          } satisfies ChatPresencePayload);
-        }
-      });
-
-    const poll = window.setInterval(() => {
-      const last = lastIdRef.current;
-      void load(last > 0 ? last : undefined);
-    }, FALLBACK_POLL_MS);
+              return;
+            }
+            if (event.type === "taunt") {
+              if (!event.taunt) return;
+              applyTaunt(event.taunt);
+              return;
+            }
+            if (!event.message) return;
+            applyIncoming(event.message, event.type);
+          })
+          .on("presence", { event: "sync" }, () => {
+            const state = channel.presenceState();
+            const map = new Map<number, ChatPresencePayload>();
+            for (const metas of Object.values(state)) {
+              for (const raw of metas as unknown as ChatPresencePayload[]) {
+                if (raw?.managerId != null && Number.isFinite(raw.managerId)) {
+                  map.set(raw.managerId, raw);
+                }
+              }
+            }
+            setOnline(
+              [...map.values()].sort((a, b) =>
+                a.displayName.localeCompare(b.displayName),
+              ),
+            );
+          })
+          .subscribe(async (status) => {
+            if (cancelled || status !== "SUBSCRIBED") return;
+            if (me) {
+              await channel.track({
+                managerId: me.managerId,
+                displayName: me.displayName,
+                avatarUrl: me.avatarUrl,
+                onlineAt: Date.now(),
+              } satisfies ChatPresencePayload);
+            }
+          });
+      } catch (error) {
+        console.error("[chat] realtime unavailable", error);
+        channelRef.current = null;
+      }
+    }
 
     return () => {
       cancelled = true;
       window.clearInterval(poll);
+      window.clearInterval(full);
       for (const t of typingTimers.current.values()) clearTimeout(t);
       typingTimers.current.clear();
       for (const t of speakingTimers.current.values()) clearTimeout(t);
@@ -360,8 +402,11 @@ export function useDressingRoom(
       tauntTimers.current.clear();
       for (const t of hitTimers.current.values()) clearTimeout(t);
       hitTimers.current.clear();
+      const ch = channelRef.current;
       channelRef.current = null;
-      void supabase.removeChannel(channel);
+      if (supabase && ch) {
+        void supabase.removeChannel(ch);
+      }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- rebind when identity changes
   }, [enabled, me?.managerId, me?.displayName, applyIncoming, applyTaunt, load]);
@@ -382,10 +427,12 @@ export function useDressingRoom(
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ body, replyToId }),
       });
-      const data = (await res.json()) as
-        | { kind: "ok"; message: ChatMessageView }
-        | { kind: "error"; message: string };
-      if (data.kind !== "ok") throw new Error(data.message);
+      const data = await readJson<
+        { kind: "ok"; message: ChatMessageView } | { kind: "error"; message: string }
+      >(res);
+      if (!data || data.kind !== "ok") {
+        throw new Error(data?.message ?? "Couldn't send.");
+      }
       applyIncoming(data.message, "message");
       broadcast({ type: "message", message: data.message });
       markSeen([data.message]);
@@ -401,10 +448,12 @@ export function useDressingRoom(
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ messageId, emoji }),
       });
-      const data = (await res.json()) as
-        | { kind: "ok"; message: ChatMessageView }
-        | { kind: "error"; message: string };
-      if (data.kind !== "ok") throw new Error(data.message);
+      const data = await readJson<
+        { kind: "ok"; message: ChatMessageView } | { kind: "error"; message: string }
+      >(res);
+      if (!data || data.kind !== "ok") {
+        throw new Error(data?.message ?? "Couldn't react.");
+      }
       applyIncoming(data.message, "reaction");
       broadcast({ type: "reaction", message: data.message });
       return data.message;
@@ -419,10 +468,12 @@ export function useDressingRoom(
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ messageId }),
       });
-      const data = (await res.json()) as
-        | { kind: "ok"; message: ChatMessageView }
-        | { kind: "error"; message: string };
-      if (data.kind !== "ok") throw new Error(data.message);
+      const data = await readJson<
+        { kind: "ok"; message: ChatMessageView } | { kind: "error"; message: string }
+      >(res);
+      if (!data || data.kind !== "ok") {
+        throw new Error(data?.message ?? "Couldn't pin.");
+      }
       applyIncoming(data.message, "pin");
       broadcast({ type: "pin", message: data.message });
       return data.message;

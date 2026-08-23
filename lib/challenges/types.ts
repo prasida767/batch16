@@ -45,3 +45,36 @@ export function stakeAmount(stakeNpr: string | null): number {
 export function isHighStake(stakeNpr: string | null): boolean {
   return stakeAmount(stakeNpr) >= HIGH_STAKE_NPR;
 }
+
+export function parsePositiveInt(raw: unknown): number | null {
+  if (raw == null || raw === "") return null;
+  const n = typeof raw === "number" ? raw : Number(String(raw).trim());
+  if (!Number.isInteger(n) || n <= 0) return null;
+  return n;
+}
+
+export function parseStakeNpr(raw: unknown): number | null {
+  if (raw == null || raw === "") return null;
+  const n = typeof raw === "number" ? raw : Number(String(raw).trim());
+  if (!Number.isFinite(n)) return null;
+  return Math.max(0, Math.min(100_000, n));
+}
+
+/** Higher GW score wins. Tie or missing scores → admin must declare. */
+export function winnerFromGwPoints(
+  creatorPoints: number | null | undefined,
+  opponentPoints: number | null | undefined,
+  creatorId: number,
+  opponentId: number,
+): number | null {
+  if (
+    creatorPoints == null ||
+    opponentPoints == null ||
+    !Number.isFinite(creatorPoints) ||
+    !Number.isFinite(opponentPoints) ||
+    creatorPoints === opponentPoints
+  ) {
+    return null;
+  }
+  return creatorPoints > opponentPoints ? creatorId : opponentId;
+}

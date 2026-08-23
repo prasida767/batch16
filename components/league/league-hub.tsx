@@ -11,66 +11,17 @@ import { AnimatedMoney } from "@/components/motion/animated-money";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { formatMoney } from "@/lib/prizes";
-import type {
-  DashboardData,
-  LiveStandingsPayload,
-  ManagerStanding,
-} from "@/lib/league/types";
+import { mergeLiveStandings } from "@/lib/league/standings";
+import type { DashboardData, LiveStandingsPayload } from "@/lib/league/types";
 import type { UpcomingGameweekFixtures } from "@/lib/fpl";
 import type { DocumentaryEpisodeView } from "@/lib/documentary";
 import { FeaturedEpisodeCard } from "@/components/documentary/featured-episode-card";
+import { FeatureErrorBoundary } from "@/components/error-boundary";
 import { cn } from "@/lib/utils";
 
 const POLL_MS = 60_000;
 
 type ViewMode = "table" | "pitch" | "fixtures";
-
-function mergeStandings(
-  current: ManagerStanding[],
-  update: LiveStandingsPayload,
-): ManagerStanding[] {
-  const byEntry = new Map(current.map((row) => [row.entryId, row]));
-  return update.standings
-    .map((live) => {
-      const prev = byEntry.get(live.entryId);
-      if (!prev) {
-        return {
-          entryId: live.entryId,
-          managerId: null,
-          name: live.playerName || `Entry ${live.entryId}`,
-          displayName: live.playerName || `Entry ${live.entryId}`,
-          teamName: live.teamName || "",
-          avatarUrl: null,
-          supportedTeamId: null,
-          supportedTeamCode: null,
-          avatarVariant: 0,
-          rank: live.rank,
-          lastRank: live.lastRank,
-          totalPoints: live.totalPoints,
-          eventPoints: live.eventPoints,
-          livePoints: live.livePoints,
-          balance: 0,
-          entryFeePaid: false,
-          verified: false,
-          weeksWon: 0,
-          activityPoints: 0,
-        } satisfies ManagerStanding;
-      }
-      return {
-        ...prev,
-        rank: live.rank,
-        lastRank: live.lastRank,
-        totalPoints: live.totalPoints,
-        eventPoints: live.eventPoints,
-        livePoints: live.livePoints,
-        ...(live.playerName
-          ? { name: live.playerName, displayName: live.playerName }
-          : {}),
-        ...(live.teamName ? { teamName: live.teamName } : {}),
-      };
-    })
-    .sort((a, b) => a.rank - b.rank);
-}
 
 function formatAgo(fetchedAt: string | null, now: number): string {
   if (!fetchedAt) return "";
@@ -96,7 +47,7 @@ export function LeagueHub({
   featuredEpisode?: DocumentaryEpisodeView | null;
   highlightEntryId?: number | null;
 }) {
-  const [standings, setStandings] = useState(initial.standings);
+  const [standings, setStandings] = useState(initial.standings ?? []);
   const [isLive, setIsLive] = useState(initial.meta.isLive);
   const [isProvisional, setIsProvisional] = useState(initial.meta.isProvisional);
   const [eventName, setEventName] = useState(initial.meta.currentEventName);
@@ -119,23 +70,26 @@ export function LeagueHub({
     setRefreshing(true);
     try {
       const response = await fetch("/api/live", { cache: "no-store" });
-      const json = (await response.json()) as
+      const json = (await response.json().catch(() => null)) as
         | { kind: "ok"; data: LiveStandingsPayload }
         | { kind: "idle"; data: LiveStandingsPayload }
         | { kind: "error"; message: string }
-        | { kind: "no_league"; message: string };
+        | { kind: "no_league"; message: string }
+        | null;
 
-      if (json.kind === "ok" || json.kind === "idle") {
+      if (json && (json.kind === "ok" || json.kind === "idle")) {
         const payload = json.data;
         setError(null);
-        setIsLive(payload.isLive);
-        setIsProvisional(payload.isProvisional);
-        setEventName(payload.currentEventName);
-        setFetchedAt(payload.fetchedAt);
-        setStandings((prev) => mergeStandings(prev, payload));
+        setIsLive(Boolean(payload?.isLive));
+        setIsProvisional(Boolean(payload?.isProvisional));
+        setEventName(payload?.currentEventName ?? null);
+        setFetchedAt(payload?.fetchedAt ?? null);
+        setStandings((prev) =>
+          mergeLiveStandings(prev, payload?.standings ?? []),
+        );
         setNow(Date.now());
       } else {
-        setError(json.message || "Couldn't refresh live scores.");
+        setError(json?.message || "Couldn't refresh live scores.");
       }
     } catch {
       setError("Couldn't refresh live scores.");
@@ -166,8 +120,13 @@ export function LeagueHub({
     return () => window.clearInterval(tick);
   }, [active, fetchedAt]);
 
-  const owedCount = standings.filter((row) => row.balance > 0.005).length;
-  const owesCount = standings.filter((row) => row.balance < -0.005).length;
+  const owedCount = standings.filter(
+    (row) => row.verified && row.balance > 0.005,
+  ).length;
+  const owesCount = standings.filter(
+    (row) => row.verified && row.balance < -0.005,
+  ).length;
+  const verifiedCount = standings.filter((row) => row.verified).length;
 
   return (
     <div className="space-y-6">
@@ -197,7 +156,11 @@ export function LeagueHub({
                 Updated {formatAgo(fetchedAt, now)} · every 60s
               </p>
             ) : null}
-            <div className="inline-flex rounded-lg bg-muted/70 p-0.5 ring-1 ring-border/60">
+            <div
+              className="inline-flex rounded-lg bg-muted/70 p-0.5 ring-1 ring-border/60"
+              role="tablist"
+              aria-label="League views"
+            >
               <Button
                 type="button"
                 size="sm"
@@ -207,7 +170,8 @@ export function LeagueHub({
                   view === "table" && "bg-card shadow-xs",
                 )}
                 onClick={() => setView("table")}
-                aria-pressed={view === "table"}
+                role="tab"
+                aria-selected={view === "table"}
               >
                 <LayoutGrid className="size-3.5" />
                 Table
@@ -221,7 +185,8 @@ export function LeagueHub({
                   view === "pitch" && "bg-card shadow-xs",
                 )}
                 onClick={() => setView("pitch")}
-                aria-pressed={view === "pitch"}
+                role="tab"
+                aria-selected={view === "pitch"}
               >
                 <MapIcon className="size-3.5" />
                 Pitch
@@ -235,7 +200,8 @@ export function LeagueHub({
                   view === "fixtures" && "bg-card shadow-xs",
                 )}
                 onClick={() => setView("fixtures")}
-                aria-pressed={view === "fixtures"}
+                role="tab"
+                aria-selected={view === "fixtures"}
               >
                 <CalendarDays className="size-3.5" />
                 Fixtures
@@ -253,7 +219,9 @@ export function LeagueHub({
 
       {featuredEpisode ? (
         <FadeIn delay={0.02}>
-          <FeaturedEpisodeCard episode={featuredEpisode} />
+          <FeatureErrorBoundary name="Documentary" compact>
+            <FeaturedEpisodeCard episode={featuredEpisode} />
+          </FeatureErrorBoundary>
         </FadeIn>
       ) : null}
 
@@ -308,11 +276,11 @@ export function LeagueHub({
 
       <p className="text-xs text-muted-foreground">
         Pot = {formatMoney(initial.prize.entryFeeNum, currency)} ×{" "}
-        {initial.prize.entryFeeNum > 0
-          ? Math.round(initial.pot / initial.prize.entryFeeNum)
-          : 0}{" "}
-        managers. Unpaid entry shows −{formatMoney(initial.prize.entryFeeNum, currency)}{" "}
-        (red); mark paid in Admin → Managers to flip it to +
+        {verifiedCount} verified manager{verifiedCount === 1 ? "" : "s"}.
+        Unverified seats wait to join before their fee is allocated. After they
+        claim, unpaid entry shows −
+        {formatMoney(initial.prize.entryFeeNum, currency)}; mark paid in Admin →
+        Managers to flip it to +
         {formatMoney(initial.prize.entryFeeNum, currency)}. Wins add on top.
       </p>
     </div>

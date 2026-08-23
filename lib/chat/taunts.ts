@@ -71,8 +71,16 @@ export type TauntEvent = {
   at: number;
 };
 
-export function tauntMeta(action: TauntActionId) {
-  return TAUNT_ACTIONS.find((a) => a.id === action)!;
+export function tauntMeta(action: TauntActionId | string) {
+  return (
+    TAUNT_ACTIONS.find((item) => item.id === action) ?? {
+      id: "tease" as TauntActionId,
+      label: "Taunt",
+      emoji: "😏",
+      float: "!",
+      description: "A locker-room jab",
+    }
+  );
 }
 
 export function makeTauntId() {

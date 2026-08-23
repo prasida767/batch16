@@ -18,15 +18,19 @@ import {
   type FplManagerHistory,
   type FplManagerPicks,
 } from "@/lib/fpl";
-import { parseMoney, totalPot } from "@/lib/prizes";
+import { parseMoney, totalPot, managersInPot } from "@/lib/prizes";
 import { getLeagueDbState, type LeagueDbState, type StoredManager } from "./db";
 import { getLeagueId, roundMoney } from "./format";
 import {
   buildLedger,
   suggestSettlements,
 } from "./ledger";
-import { computeLiveGwPoints, livePointsForElement } from "./live";
-import { buildWeeklyGameweeks } from "./weekly";
+import { computeLiveGwPoints, livePointsForElement, sanitizeLiveStandings } from "./live";
+import { sanitizeStandings } from "./standings";
+import {
+  buildWeeklyGameweeks,
+  buildWeeklyGameweeksFromStored,
+} from "./weekly";
 import type {
   BalanceEvent,
   DashboardData,
@@ -45,14 +49,17 @@ export { suggestSettlements } from "./ledger";
 
 type HistoryMap = Map<number, FplManagerHistory>;
 
-type LeagueSnapshot = {
+type LeagueBoard = {
   leagueId: number;
   standings: FplClassicLeagueStandings;
   bootstrap: FplBootstrapStatic;
   db: LeagueDbState;
-  histories: HistoryMap;
   currentEventId: number | null;
   previousEventId: number | null;
+};
+
+type LeagueSnapshot = LeagueBoard & {
+  histories: HistoryMap;
 };
 
 function errorMessage(error: unknown): string {
@@ -75,9 +82,9 @@ async function mapSettled<T, R>(
   return map;
 }
 
-export const getLeagueSnapshot = cache(
+export const getLeagueBoard = cache(
   async (): Promise<
-    | { kind: "ok"; data: LeagueSnapshot }
+    | { kind: "ok"; data: LeagueBoard }
     | { kind: "no_league" }
     | { kind: "error"; message: string }
   > => {
@@ -91,9 +98,6 @@ export const getLeagueSnapshot = cache(
         getLeagueDbState(),
       ]);
 
-      const entryIds = leagueRosterRows(standings).map((row) => row.entry);
-      const historyEntries = await mapSettled(entryIds, fetchManagerHistory);
-
       return {
         kind: "ok",
         data: {
@@ -101,7 +105,6 @@ export const getLeagueSnapshot = cache(
           standings,
           bootstrap,
           db,
-          histories: historyEntries,
           currentEventId:
             bootstrap.events.find((event) => event.is_current)?.id ?? null,
           previousEventId:
@@ -109,9 +112,33 @@ export const getLeagueSnapshot = cache(
         },
       };
     } catch (error) {
-      console.error("[league] Snapshot failed", error);
+      console.error("[league] Board failed", error);
       return { kind: "error", message: errorMessage(error) };
     }
+  },
+);
+
+export const getLeagueSnapshot = cache(
+  async (): Promise<
+    | { kind: "ok"; data: LeagueSnapshot }
+    | { kind: "no_league" }
+    | { kind: "error"; message: string }
+  > => {
+    const board = await getLeagueBoard();
+    if (board.kind !== "ok") return board;
+
+    const entryIds = leagueRosterRows(board.data.standings).map(
+      (row) => row.entry,
+    );
+    const historyEntries = await mapSettled(entryIds, fetchManagerHistory);
+
+    return {
+      kind: "ok",
+      data: {
+        ...board.data,
+        histories: historyEntries,
+      },
+    };
   },
 );
 
@@ -163,7 +190,7 @@ function seasonIsComplete(bootstrap: FplBootstrapStatic): boolean {
   return bootstrap.events.every((event) => event.finished);
 }
 
-function leagueMeta(snapshot: LeagueSnapshot) {
+function leagueMeta(snapshot: LeagueBoard) {
   const current = snapshot.bootstrap.events.find((event) => event.is_current);
   return {
     leagueId: snapshot.leagueId,
@@ -179,21 +206,21 @@ function leagueMeta(snapshot: LeagueSnapshot) {
 
 const getLivePointsByEntry = cache(async () => {
   const liveMap = new Map<number, number>();
-  const snapshot = await getLeagueSnapshot();
-  if (snapshot.kind !== "ok") return liveMap;
+  const board = await getLeagueBoard();
+  if (board.kind !== "ok") return liveMap;
 
-  const eventId = snapshot.data.currentEventId;
+  const eventId = board.data.currentEventId;
   if (!eventId) return liveMap;
   if (
-    !isLiveEvent(snapshot.data.bootstrap) &&
-    !isProvisionalEvent(snapshot.data.bootstrap)
+    !isLiveEvent(board.data.bootstrap) &&
+    !isProvisionalEvent(board.data.bootstrap)
   ) {
     return liveMap;
   }
 
   try {
     const live = await fetchLiveGameweek(eventId);
-    const entryIds = leagueRosterRows(snapshot.data.standings).map(
+    const entryIds = leagueRosterRows(board.data.standings).map(
       (row) => row.entry,
     );
     const picks = await mapSettled(entryIds, (id) =>
@@ -213,38 +240,43 @@ const getLivePointsByEntry = cache(async () => {
 });
 
 function toStandings(
-  snapshot: LeagueSnapshot,
+  snapshot: LeagueBoard,
   livePoints: Map<number, number>,
   ledger: LedgerRow[],
 ): ManagerStanding[] {
   const stored = storedByEntry(snapshot.db);
   const ledgerByEntry = new Map(ledger.map((row) => [row.entryId, row]));
 
-  return leagueRosterRows(snapshot.standings).map((row) => {
+  const rows = leagueRosterRows(snapshot.standings).flatMap((row) => {
+    if (!Number.isFinite(row.entry) || row.entry <= 0) return [];
     const manager = stored.get(row.entry);
     const ledgerRow = ledgerByEntry.get(row.entry);
-    return {
-      entryId: row.entry,
-      managerId: manager?.id ?? null,
-      name: row.player_name,
-      displayName: manager?.displayName || row.player_name,
-      teamName: row.entry_name,
-      avatarUrl: manager?.avatarUrl ?? null,
-      supportedTeamId: manager?.supportedTeamId ?? null,
-      supportedTeamCode: manager?.supportedTeamCode ?? null,
-      avatarVariant: manager?.avatarVariant ?? 0,
-      rank: row.rank,
-      lastRank: row.last_rank,
-      totalPoints: row.total,
-      eventPoints: row.event_total,
-      livePoints: livePoints.get(row.entry) ?? null,
-      balance: ledgerRow?.balance ?? 0,
-      entryFeePaid: ledgerRow?.entryFeePaid ?? false,
-      verified: manager?.verified ?? false,
-      weeksWon: ledgerRow?.weeksWon ?? 0,
-      activityPoints: manager?.activityPoints ?? 0,
-    };
+    return [
+      {
+        entryId: row.entry,
+        managerId: manager?.id ?? null,
+        name: row.player_name || `Entry ${row.entry}`,
+        displayName: manager?.displayName || row.player_name || `Entry ${row.entry}`,
+        teamName: row.entry_name || "",
+        avatarUrl: manager?.avatarUrl ?? null,
+        supportedTeamId: manager?.supportedTeamId ?? null,
+        supportedTeamCode: manager?.supportedTeamCode ?? null,
+        avatarVariant: manager?.avatarVariant ?? 0,
+        rank: row.rank,
+        lastRank: row.last_rank,
+        totalPoints: row.total,
+        eventPoints: row.event_total,
+        livePoints: livePoints.get(row.entry) ?? null,
+        balance: ledgerRow?.balance ?? 0,
+        entryFeePaid: ledgerRow?.entryFeePaid ?? false,
+        verified: manager?.verified ?? false,
+        weeksWon: ledgerRow?.weeksWon ?? 0,
+        activityPoints: manager?.activityPoints ?? 0,
+      } satisfies ManagerStanding,
+    ];
   });
+
+  return sanitizeStandings(rows);
 }
 
 export const getDashboardData = cache(async (): Promise<
@@ -252,50 +284,63 @@ export const getDashboardData = cache(async (): Promise<
   | { kind: "no_league" }
   | { kind: "error"; message: string }
 > => {
-  const snapshot = await getLeagueSnapshot();
-  if (snapshot.kind !== "ok") return snapshot;
+  const board = await getLeagueBoard();
+  if (board.kind !== "ok") return board;
 
-  const weeks = weeksFromSnapshot(snapshot.data);
-  const ledger = ledgerFromSnapshot(snapshot.data, weeks);
-  const livePoints = await getLivePointsByEntry();
-  const prize = snapshot.data.db.prize;
-  // Pot = entry fee × FPL-linked managers in our DB (not raw FPL roster size).
-  const managerCount = snapshot.data.db.managers.filter(
-    (manager) => manager.fplEntryId != null,
-  ).length;
-  const pot = totalPot(prize.entryFeeNum, managerCount);
-  const weeklyPaid = roundMoney(
-    ledger.reduce((sum, row) => sum + row.weeklyWinnings, 0),
-  );
-  const seasonReserved =
-    prize.overall1stNum +
-    prize.overall2ndNum +
-    prize.lastPlaceNum +
-    prize.customPrizesTotalNum;
-  const remaining = roundMoney(
-    pot -
-      weeklyPaid -
-      (seasonIsComplete(snapshot.data.bootstrap) ? seasonReserved : 0),
-  );
+  try {
+    const roster = leagueRosterRows(board.data.standings);
+    const weeks = buildWeeklyGameweeksFromStored(roster, board.data.db.weekly);
+    const ledger = buildLedger({
+      results: roster,
+      managers: board.data.db.managers,
+      prize: board.data.db.prize,
+      weeks,
+      seasonComplete: seasonIsComplete(board.data.bootstrap),
+    });
+    const livePoints = await getLivePointsByEntry();
+    const prize = board.data.db.prize;
+    const managerCount = managersInPot(board.data.db.managers);
+    const pot = totalPot(prize.entryFeeNum, managerCount);
+    const weeklyPaid = roundMoney(
+      ledger.reduce((sum, row) => sum + row.weeklyWinnings, 0),
+    );
+    const seasonReserved =
+      prize.overall1stNum +
+      prize.overall2ndNum +
+      prize.lastPlaceNum +
+      prize.customPrizesTotalNum;
+    const remaining = roundMoney(
+      pot -
+        weeklyPaid -
+        (seasonIsComplete(board.data.bootstrap) ? seasonReserved : 0),
+    );
 
-  const lastFinished =
-    [...weeks].reverse().find((week) => week.finished) ?? null;
+    const lastFinished =
+      [...weeks].reverse().find((week) => week.finished) ?? null;
 
-  return {
-    kind: "ok",
-    data: {
-      meta: leagueMeta(snapshot.data),
-      prize,
-      standings: toStandings(snapshot.data, livePoints, ledger),
-      pot,
-      weeklyPaid,
-      seasonReserved,
-      remaining,
-      owed: ledger.filter((row) => row.balance > 0.005).sort((a, b) => b.balance - a.balance),
-      owes: ledger.filter((row) => row.balance < -0.005).sort((a, b) => a.balance - b.balance),
-      lastWinner: lastFinished,
-    },
-  };
+    return {
+      kind: "ok",
+      data: {
+        meta: leagueMeta(board.data),
+        prize,
+        standings: toStandings(board.data, livePoints, ledger),
+        pot,
+        weeklyPaid,
+        seasonReserved,
+        remaining,
+        owed: ledger
+          .filter((row) => row.balance > 0.005)
+          .sort((a, b) => b.balance - a.balance),
+        owes: ledger
+          .filter((row) => row.balance < -0.005)
+          .sort((a, b) => a.balance - b.balance),
+        lastWinner: lastFinished,
+      },
+    };
+  } catch (error) {
+    console.error("[league] Dashboard failed", error);
+    return { kind: "error", message: errorMessage(error) };
+  }
 });
 
 export const getManagersData = cache(async () => {
@@ -355,9 +400,7 @@ export const getPrizeLedgerData = cache(async (): Promise<
   );
 
   const prize = snapshot.data.db.prize;
-  const managerCount = snapshot.data.db.managers.filter(
-    (manager) => manager.fplEntryId != null,
-  ).length;
+  const managerCount = managersInPot(snapshot.data.db.managers);
   const pot = totalPot(prize.entryFeeNum, managerCount);
   const weeklyPaid = roundMoney(
     ledger.reduce((sum, row) => sum + row.weeklyWinnings, 0),
@@ -639,30 +682,30 @@ export async function getLiveStandingsPayload(): Promise<
     ]);
 
     // Walk standings pages if needed (small private leagues usually fit one page)
-    let pageResults = [...standings.standings.results];
-    let page = standings.standings.page;
-    let hasNext = standings.standings.has_next;
+    let pageResults = [...(standings.standings?.results ?? [])];
+    let page = standings.standings?.page ?? 1;
+    let hasNext = Boolean(standings.standings?.has_next);
     while (hasNext) {
       page += 1;
       const next = await fplFetch<FplClassicLeagueStandings>(
         `/leagues-classic/${leagueId}/standings/?page_standings=${page}`,
         fresh,
       );
-      pageResults = [...pageResults, ...next.standings.results];
-      hasNext = next.standings.has_next;
+      pageResults = [...pageResults, ...(next.standings?.results ?? [])];
+      hasNext = Boolean(next.standings?.has_next);
     }
 
-    let newEntries = [...standings.new_entries.results];
-    let newPage = standings.new_entries.page;
-    let newHasNext = standings.new_entries.has_next;
+    let newEntries = [...(standings.new_entries?.results ?? [])];
+    let newPage = standings.new_entries?.page ?? 1;
+    let newHasNext = Boolean(standings.new_entries?.has_next);
     while (newHasNext) {
       newPage += 1;
       const next = await fplFetch<FplClassicLeagueStandings>(
         `/leagues-classic/${leagueId}/standings/?page_new_entries=${newPage}`,
         fresh,
       );
-      newEntries = [...newEntries, ...next.new_entries.results];
-      newHasNext = next.new_entries.has_next;
+      newEntries = [...newEntries, ...(next.new_entries?.results ?? [])];
+      newHasNext = Boolean(next.new_entries?.has_next);
     }
 
     const results = leagueRosterRows({
@@ -681,7 +724,9 @@ export async function getLiveStandingsPayload(): Promise<
       },
     });
 
-    const current = bootstrap.events.find((event) => event.is_current) ?? null;
+    const events = bootstrap.events ?? [];
+    const current = events.find((event) => event.is_current) ?? null;
+    const nextEvent = events.find((event) => event.is_next) ?? null;
     const isLive = Boolean(current && !current.finished);
     const isProvisional = Boolean(
       current && current.finished && !current.data_checked,
@@ -692,54 +737,75 @@ export async function getLiveStandingsPayload(): Promise<
       number,
       { points: number; ownedBy: number }
     >();
+    let liveStatsReady = false;
 
     if (current && (isLive || isProvisional)) {
-      const live = await fplFetch<FplLiveEvent>(
-        `/event/${current.id}/live/`,
-        fresh,
-      );
-      const statsById = new Map(live.elements.map((el) => [el.id, el.stats]));
-      const picks = await mapSettled(
-        results.map((row) => row.entry),
-        (id) =>
-          fplFetch<FplManagerPicks>(
-            `/entry/${id}/event/${current.id}/picks/`,
-            fresh,
-          ),
-      );
-      for (const [entryId, squad] of picks) {
-        livePoints.set(
-          entryId,
-          computeLiveGwPoints(squad.picks, live, squad.active_chip),
+      try {
+        const live = await fplFetch<FplLiveEvent>(
+          `/event/${current.id}/live/`,
+          fresh,
         );
+        const elements = live?.elements ?? [];
+        liveStatsReady = elements.length > 0;
+        const statsById = new Map(
+          elements
+            .filter((el) => el && Number.isFinite(el.id))
+            .map((el) => [el.id, el.stats] as const),
+        );
+        const picks = await mapSettled(
+          results.map((row) => row.entry).filter((id) => Number.isFinite(id) && id > 0),
+          (id) =>
+            fplFetch<FplManagerPicks>(
+              `/entry/${id}/event/${current.id}/picks/`,
+              fresh,
+            ),
+        );
+        for (const [entryId, squad] of picks) {
+          if (!squad?.picks) continue;
+          livePoints.set(
+            entryId,
+            computeLiveGwPoints(squad.picks, live, squad.active_chip ?? null),
+          );
 
-        for (const pick of squad.picks) {
-          if (pick.multiplier <= 0) continue;
-          const stats = statsById.get(pick.element);
-          if (!stats) continue;
-          const existing = playerOwned.get(pick.element);
-          if (existing) {
-            existing.ownedBy += 1;
-          } else {
-            playerOwned.set(pick.element, {
-              points: stats.total_points,
-              ownedBy: 1,
-            });
+          for (const pick of squad.picks) {
+            if (!pick || pick.multiplier <= 0) continue;
+            const stats = statsById.get(pick.element);
+            if (!stats) continue;
+            const pts = Number.isFinite(stats.total_points)
+              ? stats.total_points
+              : 0;
+            const existing = playerOwned.get(pick.element);
+            if (existing) {
+              existing.ownedBy += 1;
+            } else {
+              playerOwned.set(pick.element, {
+                points: pts,
+                ownedBy: 1,
+              });
+            }
           }
         }
+      } catch (error) {
+        console.error(
+          "[league] Live FPL stats delayed or missing — using official GW scores",
+          error,
+        );
+        liveStatsReady = false;
       }
     }
 
-    const liveStandings: LiveStandingUpdate[] = results.map((row) => ({
-      entryId: row.entry,
-      playerName: row.player_name,
-      teamName: row.entry_name,
-      rank: row.rank,
-      lastRank: row.last_rank,
-      totalPoints: row.total,
-      eventPoints: row.event_total,
-      livePoints: livePoints.get(row.entry) ?? null,
-    }));
+    const liveStandings: LiveStandingUpdate[] = sanitizeLiveStandings(
+      results.map((row) => ({
+        entryId: row.entry,
+        playerName: row.player_name,
+        teamName: row.entry_name,
+        rank: row.rank,
+        lastRank: row.last_rank,
+        totalPoints: row.total,
+        eventPoints: row.event_total,
+        livePoints: livePoints.get(row.entry) ?? null,
+      })),
+    );
 
     const topScorers = [...liveStandings]
       .map((row) => ({
@@ -748,11 +814,12 @@ export async function getLiveStandingsPayload(): Promise<
         teamName: row.teamName,
         points: row.livePoints ?? row.eventPoints,
       }))
+      .filter((row) => Number.isFinite(row.points))
       .sort((a, b) => b.points - a.points || a.playerName.localeCompare(b.playerName))
       .slice(0, 8);
 
     const elementById = new Map(
-      bootstrap.elements.map((el) => [el.id, el] as const),
+      (bootstrap.elements ?? []).map((el) => [el.id, el] as const),
     );
     const playerScorers = [...playerOwned.entries()]
       .map(([elementId, info]) => {
@@ -761,7 +828,7 @@ export async function getLiveStandingsPayload(): Promise<
           elementId,
           name: el?.web_name ?? `Player ${elementId}`,
           teamId: el?.team ?? 0,
-          points: info.points,
+          points: Number.isFinite(info.points) ? info.points : 0,
           ownedBy: info.ownedBy,
         };
       })
@@ -776,9 +843,12 @@ export async function getLiveStandingsPayload(): Promise<
     const payload: LiveStandingsPayload = {
       isLive,
       isProvisional,
-      leagueName: standings.league.name || "FPL League",
+      liveStatsReady,
+      leagueName: standings.league?.name || "FPL League",
       currentEventId: current?.id ?? null,
       currentEventName: current?.name ?? null,
+      nextEventName: nextEvent?.name ?? null,
+      nextDeadline: nextEvent?.deadline_time ?? null,
       fetchedAt: new Date().toISOString(),
       standings: liveStandings,
       topScorers,

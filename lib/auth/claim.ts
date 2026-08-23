@@ -1,149 +1,296 @@
 import "server-only";
 
-import { and, eq, isNotNull } from "drizzle-orm";
-import { getDb, managerAccounts, managers } from "@/lib/db";
-import { fetchManagerEntry } from "@/lib/fpl";
-import { canonicalKeyFromName } from "@/lib/history/names";
+import { eq, isNotNull } from "drizzle-orm";
+import { getDb, balances, managerAccounts, managers } from "@/lib/db";
 import {
-  namesMatchForClaim,
-  normalizeTeamName,
+  fetchAllClassicLeagueStandings,
+  getBootstrapStatic,
+  getLeagueId,
+  leagueRosterRows,
+} from "@/lib/fpl";
+import {
+  matchLeagueRoster,
+  parseClaimFormInput,
   validateClaimInputs,
+  type LeagueRosterRow,
 } from "@/lib/auth/claim-match";
 import { getAuthUser } from "@/lib/auth/session";
 import { defaultAvatarVariant, CLUB_DEFINITIONS } from "@/lib/avatars/clubs";
-import { getBootstrapStatic } from "@/lib/fpl";
+import {
+  canonicalKeyFromName,
+  preferredDisplayName,
+} from "@/lib/history/names";
+import { getLeagueDbStateFresh } from "@/lib/league/db";
 
-/**
- * Match a league manager by real name + FPL team name (entry name).
- * Both must match; team name is checked against live FPL data.
- */
-export async function findManagerForClaim(args: {
-  fullName: string;
-  teamName: string;
-}): Promise<
-  | { kind: "ok"; managerId: number; displayName: string; teamName: string }
-  | { kind: "error"; message: string }
+async function loadLeagueRoster(): Promise<
+  | { kind: "ok"; rows: LeagueRosterRow[] }
+  | { kind: "unavailable"; message: string }
 > {
-  const fullName = args.fullName.trim();
-  const teamName = args.teamName.trim();
-  const inputError = validateClaimInputs({ fullName, teamName });
-  if (inputError) {
-    return { kind: "error", message: inputError };
+  const leagueId = getLeagueId();
+  if (!leagueId) {
+    return {
+      kind: "unavailable",
+      message:
+        "This app isn't linked to an FPL league yet. Ask an admin to set FPL_LEAGUE_ID.",
+    };
   }
 
-  const key = canonicalKeyFromName(fullName)!;
+  try {
+    const standings = await fetchAllClassicLeagueStandings(leagueId);
+    const live = leagueRosterRows(standings);
+    if (live.length === 0) {
+      return {
+        kind: "unavailable",
+        message:
+          "FPL hasn't published this league's managers yet. Try again in a minute.",
+      };
+    }
 
-  const db = getDb();
-  let candidates = await db
-    .select({
-      id: managers.id,
-      displayName: managers.displayName,
-      name: managers.name,
-      canonicalKey: managers.canonicalKey,
-      fplEntryId: managers.fplEntryId,
-    })
-    .from(managers)
-    .where(and(eq(managers.canonicalKey, key), isNotNull(managers.fplEntryId)));
-
-  if (candidates.length === 0) {
-    const all = await db
+    const db = getDb();
+    const stored = await db
       .select({
-        id: managers.id,
+        fplEntryId: managers.fplEntryId,
         displayName: managers.displayName,
         name: managers.name,
-        canonicalKey: managers.canonicalKey,
-        fplEntryId: managers.fplEntryId,
       })
       .from(managers)
       .where(isNotNull(managers.fplEntryId));
 
-    candidates = all.filter(
-      (row) =>
-        namesMatchForClaim(row.displayName, fullName) ||
-        namesMatchForClaim(row.name, fullName),
-    );
-    if (candidates.length === 0) {
+    const alts = new Map<number, string[]>();
+    for (const row of stored) {
+      if (row.fplEntryId == null) continue;
+      const names = [row.displayName, row.name].filter(Boolean);
+      alts.set(row.fplEntryId, names);
+    }
+
+    return {
+      kind: "ok",
+      rows: live.map((row) => ({
+        entryId: row.entry,
+        playerName: row.player_name,
+        teamName: row.entry_name,
+        altNames: alts.get(row.entry) ?? [],
+      })),
+    };
+  } catch (error) {
+    console.error("[claim] League standings unavailable", error);
+    return {
+      kind: "unavailable",
+      message:
+        "Couldn't load the FPL league right now. Wait a minute and try again.",
+    };
+  }
+}
+
+async function fallbackRosterFromDb(): Promise<LeagueRosterRow[]> {
+  const db = getDb();
+  const stored = await db
+    .select({
+      fplEntryId: managers.fplEntryId,
+      displayName: managers.displayName,
+      name: managers.name,
+    })
+    .from(managers)
+    .where(isNotNull(managers.fplEntryId));
+
+  return stored.flatMap((row) =>
+    row.fplEntryId == null
+      ? []
+      : [
+          {
+            entryId: row.fplEntryId,
+            playerName: row.displayName,
+            teamName: "",
+            altNames: [row.name],
+          },
+        ],
+  );
+}
+
+/** Find or create the DB manager row for a verified FPL league entry. */
+async function ensureManagerForEntry(row: LeagueRosterRow): Promise<{
+  id: number;
+  displayName: string;
+  fplEntryId: number;
+}> {
+  const db = getDb();
+  const display = preferredDisplayName(
+    row.playerName,
+    canonicalKeyFromName(row.playerName),
+  );
+  const key = canonicalKeyFromName(row.playerName) || `entry_${row.entryId}`;
+
+  const [byEntry] = await db
+    .select({
+      id: managers.id,
+      displayName: managers.displayName,
+      fplEntryId: managers.fplEntryId,
+    })
+    .from(managers)
+    .where(eq(managers.fplEntryId, row.entryId))
+    .limit(1);
+
+  if (byEntry && byEntry.fplEntryId != null) {
+    return {
+      id: byEntry.id,
+      displayName: byEntry.displayName,
+      fplEntryId: byEntry.fplEntryId,
+    };
+  }
+
+  const [byKey] = await db
+    .select({
+      id: managers.id,
+      displayName: managers.displayName,
+    })
+    .from(managers)
+    .where(eq(managers.canonicalKey, key))
+    .limit(1);
+
+  if (byKey) {
+    await db
+      .update(managers)
+      .set({
+        fplEntryId: row.entryId,
+        name: display,
+        displayName: byKey.displayName || display,
+      })
+      .where(eq(managers.id, byKey.id));
+    return {
+      id: byKey.id,
+      displayName: byKey.displayName || display,
+      fplEntryId: row.entryId,
+    };
+  }
+
+  const [inserted] = await db
+    .insert(managers)
+    .values({
+      fplEntryId: row.entryId,
+      canonicalKey: key,
+      name: display,
+      displayName: display,
+    })
+    .returning({ id: managers.id, displayName: managers.displayName });
+
+  if (!inserted) {
+    throw new Error("Couldn't create a manager row for that FPL entry.");
+  }
+
+  try {
+    const fee = (await getLeagueDbStateFresh()).prize.entryFeeNum;
+    await db.insert(balances).values({
+      managerId: inserted.id,
+      currentBalance: (-fee).toFixed(2),
+      entryFeePaid: false,
+    });
+  } catch (error) {
+    console.error("[claim] Balance insert failed", error);
+  }
+
+  return {
+    id: inserted.id,
+    displayName: inserted.displayName,
+    fplEntryId: row.entryId,
+  };
+}
+
+/**
+ * Match a league manager against live FPL standings (name and/or team).
+ */
+export async function findManagerForClaim(args: {
+  fullName: string;
+  teamName: string;
+  entryIdRaw?: string;
+}): Promise<
+  | {
+      kind: "ok";
+      managerId: number;
+      displayName: string;
+      teamName: string;
+      fplEntryId: number;
+    }
+  | { kind: "error"; message: string }
+> {
+  const input = parseClaimFormInput({
+    fullName: args.fullName,
+    teamName: args.teamName,
+    entryIdRaw: args.entryIdRaw ?? "",
+  });
+  const inputError = validateClaimInputs(input);
+  if (inputError) {
+    return { kind: "error", message: inputError };
+  }
+
+  const live = await loadLeagueRoster();
+  let roster: LeagueRosterRow[] = [];
+  if (live.kind === "ok") {
+    roster = live.rows;
+  } else if (input.entryId != null || input.fullName) {
+    roster = await fallbackRosterFromDb();
+    if (roster.length === 0) {
+      return { kind: "error", message: live.message };
+    }
+    if (input.teamName && input.entryId == null) {
       return {
         kind: "error",
-        message:
-          "No league manager matched that name. Use the exact name from the standings.",
+        message: `${live.message} Team names can't be checked until FPL loads — try your manager name, or paste your FPL entry ID.`,
       };
     }
+  } else {
+    return { kind: "error", message: live.message };
   }
 
-  const teamKey = normalizeTeamName(teamName);
-  const matches: {
-    managerId: number;
-    displayName: string;
-    teamName: string;
-  }[] = [];
-
-  for (const candidate of candidates) {
-    if (candidate.fplEntryId == null) continue;
-    try {
-      const entry = await fetchManagerEntry(candidate.fplEntryId);
-      const fplPerson = `${entry.player_first_name} ${entry.player_last_name}`.trim();
-      const personOk =
-        namesMatchForClaim(candidate.displayName, fullName) ||
-        namesMatchForClaim(candidate.name, fullName) ||
-        namesMatchForClaim(fplPerson, fullName);
-      const teamOk = normalizeTeamName(entry.name) === teamKey;
-      if (personOk && teamOk) {
-        matches.push({
-          managerId: candidate.id,
-          displayName: candidate.displayName,
-          teamName: entry.name,
-        });
-      }
-    } catch {
-      // Skip unreachable FPL entries
-    }
+  const matched = matchLeagueRoster(roster, input);
+  if (matched.kind === "error") {
+    return matched;
   }
 
-  if (matches.length === 0) {
+  const db = getDb();
+  let manager: { id: number; displayName: string; fplEntryId: number };
+  try {
+    manager = await ensureManagerForEntry(matched.row);
+  } catch (error) {
+    console.error("[claim] ensureManager failed", error);
     return {
       kind: "error",
-      message:
-        "Name matched a manager, but the FPL team name didn't. Check the team name on FPL (not your login email).",
+      message: "Matched your FPL team, but couldn't save it. Try again.",
     };
   }
 
-  if (matches.length > 1) {
-    return {
-      kind: "error",
-      message:
-        "Multiple managers matched. Contact the admin to link your account.",
-    };
-  }
-
-  const [match] = matches;
   const [claimed] = await db
     .select({ id: managerAccounts.id })
     .from(managerAccounts)
-    .where(eq(managerAccounts.managerId, match!.managerId))
+    .where(eq(managerAccounts.managerId, manager.id))
     .limit(1);
 
   if (claimed) {
     return {
       kind: "error",
-      message: "That manager is already linked to another account.",
+      message:
+        "That manager is already linked to another account. Ask an admin to unlink it if it's yours.",
     };
   }
 
   return {
     kind: "ok",
-    managerId: match!.managerId,
-    displayName: match!.displayName,
-    teamName: match!.teamName,
+    managerId: manager.id,
+    displayName: manager.displayName,
+    teamName: matched.row.teamName || input.teamName,
+    fplEntryId: manager.fplEntryId,
   };
 }
 
 export async function claimManagerForCurrentUser(args: {
   fullName: string;
   teamName: string;
+  entryIdRaw?: string;
   supportedTeamId: number;
   avatarVariant?: number;
-}): Promise<{ ok: true; displayName: string } | { ok: false; message: string }> {
+}): Promise<
+  | { ok: true; displayName: string; managerId: number; fplEntryId: number }
+  | { ok: false; message: string }
+> {
   const user = await getAuthUser();
   if (!user?.email) {
     return { ok: false, message: "Sign in first, then verify your manager." };
@@ -196,20 +343,32 @@ export async function claimManagerForCurrentUser(args: {
       managerId: found.managerId,
       email: user.email.toLowerCase(),
     });
-    await db
-      .update(managers)
-      .set({
-        supportedTeamId: args.supportedTeamId,
-        supportedTeamCode: teamCode,
-        avatarVariant: variant,
-      })
-      .where(eq(managers.id, found.managerId));
-  } catch {
+  } catch (error) {
+    console.error("[claim] Link insert failed", error);
     return {
       ok: false,
       message: "Couldn't link that manager — it may already be claimed.",
     };
   }
 
-  return { ok: true, displayName: found.displayName };
+  try {
+    await db
+      .update(managers)
+      .set({
+        fplEntryId: found.fplEntryId,
+        supportedTeamId: args.supportedTeamId,
+        supportedTeamCode: teamCode,
+        avatarVariant: variant,
+      })
+      .where(eq(managers.id, found.managerId));
+  } catch (error) {
+    console.error("[claim] Avatar update failed after link", error);
+  }
+
+  return {
+    ok: true,
+    displayName: found.displayName,
+    managerId: found.managerId,
+    fplEntryId: found.fplEntryId,
+  };
 }

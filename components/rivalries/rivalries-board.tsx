@@ -22,6 +22,18 @@ import {
   type RivalriesBoard,
 } from "@/lib/rivalries/compute";
 
+function firstName(name: string) {
+  const part = name.trim().split(/\s+/)[0];
+  return part || name || "Unknown";
+}
+
+function counterpart(
+  pair: NonNullable<RivalriesBoard["pairs"][number]>,
+  entryId: number,
+) {
+  return pair.a.entryId === entryId ? pair.b : pair.a;
+}
+
 export function RivalriesBoardView({ board }: { board: RivalriesBoard }) {
   const [focusId, setFocusId] = useState(board.managers[0]?.entryId ?? 0);
 
@@ -33,11 +45,9 @@ export function RivalriesBoardView({ board }: { board: RivalriesBoard }) {
 
   const focus = board.managers.find((m) => m.entryId === focusId);
   const nemesisOther =
-    profile?.nemesis == null
-      ? null
-      : profile.nemesis.a.entryId === focusId
-        ? profile.nemesis.b
-        : profile.nemesis.a;
+    profile?.nemesis == null ? null : counterpart(profile.nemesis, focusId);
+  const charmOther =
+    profile?.luckyCharm == null ? null : counterpart(profile.luckyCharm, focusId);
 
   return (
     <div className="space-y-8">
@@ -47,14 +57,14 @@ export function RivalriesBoardView({ board }: { board: RivalriesBoard }) {
             <HighlightChip
               icon={<Flame className="size-3.5 text-rose-500" />}
               label="Most toxic"
-              value={`${board.toxic.a.displayName.split(" ")[0]} vs ${board.toxic.b.displayName.split(" ")[0]}`}
+              value={`${firstName(board.toxic.a.displayName)} vs ${firstName(board.toxic.b.displayName)}`}
             />
           ) : null}
           {board.comeback ? (
             <HighlightChip
               icon={<Swords className="size-3.5 text-amber-500" />}
               label="Biggest comeback"
-              value={board.comeback.a.displayName.split(" ")[0]!}
+              value={firstName(board.comeback.a.displayName)}
             />
           ) : null}
           <HighlightChip
@@ -122,10 +132,10 @@ export function RivalriesBoardView({ board }: { board: RivalriesBoard }) {
       <FadeIn delay={0.08}>
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Nemesis timeline</CardTitle>
+            <CardTitle className="text-base">Nemesis & lucky charm</CardTitle>
             <CardDescription>
-              Pick a manager — see how the rank gap vs their nemesis swings week
-              to week.
+              Pick a manager — see who owns them, who they own, and the rank
+              gap vs their nemesis week to week.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -143,6 +153,56 @@ export function RivalriesBoardView({ board }: { board: RivalriesBoard }) {
                   </option>
                 ))}
               </select>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              {focus && profile?.nemesis && nemesisOther ? (
+                <RivalryCard
+                  title="Nemesis"
+                  subtitle={`${focus.displayName} trails ${nemesisOther.displayName} across finished gameweeks.`}
+                  a={focus}
+                  b={nemesisOther}
+                  aWins={
+                    profile.nemesis.a.entryId === focusId
+                      ? profile.nemesis.record.aWins
+                      : profile.nemesis.record.bWins
+                  }
+                  bWins={
+                    profile.nemesis.a.entryId === focusId
+                      ? profile.nemesis.record.bWins
+                      : profile.nemesis.record.aWins
+                  }
+                  games={profile.nemesis.record.games}
+                  highlight
+                />
+              ) : (
+                <p className="rounded-2xl border border-dashed border-border/70 px-4 py-6 text-sm text-muted-foreground">
+                  No clear nemesis yet — need a losing head-to-head record.
+                </p>
+              )}
+              {focus && profile?.luckyCharm && charmOther ? (
+                <RivalryCard
+                  title="Lucky charm"
+                  subtitle={`${focus.displayName} owns ${charmOther.displayName} when it counts.`}
+                  a={focus}
+                  b={charmOther}
+                  aWins={
+                    profile.luckyCharm.a.entryId === focusId
+                      ? profile.luckyCharm.record.aWins
+                      : profile.luckyCharm.record.bWins
+                  }
+                  bWins={
+                    profile.luckyCharm.a.entryId === focusId
+                      ? profile.luckyCharm.record.bWins
+                      : profile.luckyCharm.record.aWins
+                  }
+                  games={profile.luckyCharm.record.games}
+                />
+              ) : (
+                <p className="rounded-2xl border border-dashed border-border/70 px-4 py-6 text-sm text-muted-foreground">
+                  No lucky charm yet — need a winning head-to-head record.
+                </p>
+              )}
             </div>
 
             {focus && profile?.nemesis && nemesisOther ? (
@@ -167,16 +227,11 @@ export function RivalriesBoardView({ board }: { board: RivalriesBoard }) {
                 </div>
                 <NemesisTimelineChart
                   points={timeline}
-                  myName={focus.displayName.split(" ")[0]!}
-                  theirName={nemesisOther.displayName.split(" ")[0]!}
+                  myName={firstName(focus.displayName)}
+                  theirName={firstName(nemesisOther.displayName)}
                 />
               </div>
-            ) : (
-              <p className="text-sm text-muted-foreground">
-                No clear nemesis yet for this manager — need more finished
-                gameweeks.
-              </p>
-            )}
+            ) : null}
           </CardContent>
         </Card>
       </FadeIn>
@@ -187,6 +242,11 @@ export function RivalriesBoardView({ board }: { board: RivalriesBoard }) {
             League scrapbook
           </h2>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {board.pairs.length === 0 ? (
+              <p className="text-sm text-muted-foreground sm:col-span-2 lg:col-span-3">
+                The scrapbook fills in as finished gameweeks land.
+              </p>
+            ) : null}
             {board.pairs.slice(0, 12).map((pair) => (
               <RivalryCard
                 key={pair.key}

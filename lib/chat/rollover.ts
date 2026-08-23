@@ -3,10 +3,11 @@ import "server-only";
 import { and, asc, eq, inArray, isNull, lt, sql } from "drizzle-orm";
 import { getDb, chatMessages, settings } from "@/lib/db";
 import { getCurrentGameweek } from "@/lib/fpl";
-import {
-  CHAT_ACTIVE_GW_SETTING,
-  HALL_OF_FAME_MIN_REACTIONS,
-} from "@/lib/chat/types";
+import { pickQuoteOfWeek, shouldKeepOnRollover } from "@/lib/chat/helpers";
+import { CHAT_ACTIVE_GW_SETTING } from "@/lib/chat/types";
+
+const ROLLOVER_TTL_MS = 30_000;
+let rolloverCache: { gameweek: number; at: number } | null = null;
 
 async function getStoredActiveGameweek(): Promise<number | null> {
   const db = getDb();
@@ -29,6 +30,17 @@ async function setStoredActiveGameweek(gameweek: number) {
       target: settings.key,
       set: { value: String(gameweek) },
     });
+  rolloverCache = { gameweek, at: Date.now() };
+}
+
+export async function peekChatGameweek(): Promise<number> {
+  if (rolloverCache && Date.now() - rolloverCache.at < ROLLOVER_TTL_MS) {
+    return rolloverCache.gameweek;
+  }
+  const stored = await getStoredActiveGameweek().catch(() => null);
+  const gameweek = stored ?? 1;
+  rolloverCache = { gameweek, at: Date.now() };
+  return gameweek;
 }
 
 /**
@@ -36,6 +48,7 @@ async function setStoredActiveGameweek(gameweek: number) {
  * and soft-delete the rest for a finished gameweek.
  */
 export async function archiveChatGameweek(gameweek: number) {
+  if (!Number.isInteger(gameweek) || gameweek <= 0) return;
   const db = getDb();
 
   const candidates = await db
@@ -57,27 +70,25 @@ export async function archiveChatGameweek(gameweek: number) {
   if (candidates.length === 0) return;
 
   const keepIds: number[] = [];
-  let quoteId: number | null = null;
-  let quoteScore = -1;
-
   for (const row of candidates) {
-    const pinned = row.pinnedAt != null;
-    const keep =
-      pinned || row.reactionCount >= HALL_OF_FAME_MIN_REACTIONS;
-    if (keep) keepIds.push(row.id);
-
-    const score = row.reactionCount + (pinned ? 0.5 : 0);
-    if (score > quoteScore) {
-      quoteScore = score;
-      quoteId = row.id;
+    if (
+      shouldKeepOnRollover({
+        reactionCount: row.reactionCount,
+        pinned: row.pinnedAt != null,
+      })
+    ) {
+      keepIds.push(row.id);
     }
   }
 
-  if (quoteId != null && quoteScore >= 1) {
-    if (!keepIds.includes(quoteId)) keepIds.push(quoteId);
-  } else {
-    quoteId = null;
-  }
+  const quoteId = pickQuoteOfWeek(
+    candidates.map((row) => ({
+      id: row.id,
+      reactionCount: row.reactionCount,
+      pinned: row.pinnedAt != null,
+    })),
+  );
+  if (quoteId != null && !keepIds.includes(quoteId)) keepIds.push(quoteId);
 
   if (keepIds.length > 0) {
     await db
@@ -116,50 +127,54 @@ export async function archiveChatGameweek(gameweek: number) {
 
 /**
  * When FPL advances to a new gameweek, archive previous active chat weeks.
- * Safe to call on every chat read/write.
+ * Safe to call on chat writes; incremental reads should peek the cached GW.
  */
 export async function ensureChatGameweekRollover(): Promise<number> {
-  const current = await getCurrentGameweek();
-  if (current == null || current <= 0) {
-    const stored = await getStoredActiveGameweek();
-    return stored ?? 1;
+  if (rolloverCache && Date.now() - rolloverCache.at < ROLLOVER_TTL_MS) {
+    return rolloverCache.gameweek;
   }
 
-  const stored = await getStoredActiveGameweek();
-  if (stored == null) {
-    await setStoredActiveGameweek(current);
-    return current;
-  }
-
-  if (current > stored) {
-    for (let gw = stored; gw < current; gw += 1) {
-      await archiveChatGameweek(gw);
-      try {
-        const { generateWeeklyDocumentaryEpisode } = await import(
-          "@/lib/documentary/service"
-        );
-        await generateWeeklyDocumentaryEpisode(gw);
-      } catch {
-        // Episode generation is best-effort; ensureDocumentaryEpisodes retries.
-      }
+  try {
+    const current = await getCurrentGameweek();
+    if (current == null || current <= 0) {
+      return peekChatGameweek();
     }
-    await setStoredActiveGameweek(current);
-  }
 
-  return current;
+    const stored = await getStoredActiveGameweek();
+    if (stored == null) {
+      await setStoredActiveGameweek(current);
+      return current;
+    }
+
+    if (current > stored) {
+      for (let gw = stored; gw < current; gw += 1) {
+        await archiveChatGameweek(gw);
+        try {
+          const { generateWeeklyDocumentaryEpisode } = await import(
+            "@/lib/documentary/service"
+          );
+          await generateWeeklyDocumentaryEpisode(gw);
+        } catch {
+          // Episode generation is best-effort.
+        }
+      }
+      await setStoredActiveGameweek(current);
+    } else {
+      rolloverCache = { gameweek: current, at: Date.now() };
+    }
+
+    return current;
+  } catch (error) {
+    console.error("[chat] rollover skipped", error);
+    return peekChatGameweek();
+  }
 }
 
 /** Force archive of a specific GW (admin / tests). */
 export async function forceArchiveGameweek(gameweek: number) {
   await archiveChatGameweek(gameweek);
-  const db = getDb();
-  const [row] = await db
-    .select({ value: settings.value })
-    .from(settings)
-    .where(eq(settings.key, CHAT_ACTIVE_GW_SETTING))
-    .limit(1);
-  const active = row ? Number(row.value) : null;
-  if (active != null && gameweek >= active) {
+  const stored = await getStoredActiveGameweek();
+  if (stored != null && gameweek >= stored) {
     await setStoredActiveGameweek(gameweek + 1);
   }
 }
@@ -177,8 +192,9 @@ export async function recountReactions(messageId: number) {
     .where(eq(chatMessages.id, messageId));
 }
 
-/** Soft-delete any leftover non-HOF messages older than the active GW (safety net). */
+/** Soft-delete leftover non-HOF messages older than the active GW. */
 export async function purgeStaleActiveMessages(activeGameweek: number) {
+  if (!Number.isInteger(activeGameweek) || activeGameweek <= 1) return;
   const db = getDb();
   await db
     .update(chatMessages)

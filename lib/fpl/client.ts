@@ -7,6 +7,7 @@ export interface FplRequestOptions {
   /** Next.js fetch revalidate window in seconds. */
   revalidate?: number;
   tags?: string[];
+  timeoutMs?: number;
 }
 
 export async function fplFetch<T>(
@@ -15,23 +16,47 @@ export async function fplFetch<T>(
 ): Promise<T> {
   const url = `${FPL_BASE_URL}${path.startsWith("/") ? path : `/${path}`}`;
   const tags = [FPL_CACHE_TAGS.all, ...(options.tags ?? [])];
+  const timeoutMs = options.timeoutMs ?? 12_000;
 
-  let response: Response;
-  try {
-    response = await fetch(url, {
+  const run = async () => {
+    const signal =
+      typeof AbortSignal !== "undefined" && "timeout" in AbortSignal
+        ? AbortSignal.timeout(timeoutMs)
+        : undefined;
+    return fetch(url, {
       headers: {
         Accept: "application/json",
         "User-Agent": "fpl-league/0.1 (private league tracker)",
       },
+      signal,
       next: {
         revalidate: options.revalidate ?? 60,
         tags,
       },
     });
+  };
+
+  let response: Response;
+  try {
+    response = await run();
+    if (!response.ok && [429, 502, 503, 504].includes(response.status)) {
+      await new Promise((resolve) => setTimeout(resolve, 400));
+      response = await run();
+    }
   } catch (error) {
-    const reason = error instanceof Error ? error.message : "Network error";
-    console.error("[fpl] Request failed", { url, reason });
-    throw new FplApiError(`FPL request failed: ${reason}`, 0, path);
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 400));
+      response = await run();
+    } catch (retryError) {
+      const reason =
+        retryError instanceof Error
+          ? retryError.message
+          : error instanceof Error
+            ? error.message
+            : "Network error";
+      console.error("[fpl] Request failed", { url, reason });
+      throw new FplApiError(`FPL request failed: ${reason}`, 0, path);
+    }
   }
 
   if (!response.ok) {

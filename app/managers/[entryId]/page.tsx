@@ -36,7 +36,23 @@ export default async function ManagerDetailPage({
 }) {
   const { entryId: raw } = await params;
   const entryId = Number(raw);
-  const result = await getManagerDetail(entryId);
+  if (!Number.isInteger(entryId) || entryId <= 0) notFound();
+
+  let result: Awaited<ReturnType<typeof getManagerDetail>>;
+  try {
+    result = await getManagerDetail(entryId);
+  } catch (error) {
+    return (
+      <div className="space-y-6">
+        <PageHeader eyebrow="Manager" title="Manager" />
+        <ErrorState
+          message={
+            error instanceof Error ? error.message : "Couldn't load this manager."
+          }
+        />
+      </div>
+    );
+  }
 
   if (result.kind === "not_found") notFound();
 
@@ -53,7 +69,7 @@ export default async function ManagerDetailPage({
   const currency = data.prize.currency;
   const captain = data.starters.find((player) => player.isCaptain);
   const vice = [...data.starters, ...data.bench].find((player) => player.isVice);
-  const rivalry = await getManagerRivalryProfile(entryId);
+  const rivalry = await getManagerRivalryProfile(entryId).catch(() => null);
 
   return (
     <div className="space-y-8">

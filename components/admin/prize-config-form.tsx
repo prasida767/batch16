@@ -121,7 +121,7 @@ export function PrizeConfigForm({
               id="entryFee"
               name="entryFee"
               label="Entry fee"
-              hint={`Paid by each manager. With ${managerCount} manager${managerCount === 1 ? "" : "s"} this makes a ${formatMoney(pot, currency)} pot.`}
+              hint={`Paid by each verified manager. With ${managerCount} verified manager${managerCount === 1 ? "" : "s"} this makes a ${formatMoney(pot, currency)} pot.`}
               value={entryFee}
               onChange={setEntryFee}
             />
@@ -287,8 +287,9 @@ export function PrizeConfigForm({
             Pot allocator
           </CardTitle>
           <CardDescription>
-            {managerCount} manager{managerCount === 1 ? "" : "s"} × entry fee.
-            Watch what&apos;s left as you assign prizes.
+            {managerCount} verified manager{managerCount === 1 ? "" : "s"} ×
+            entry fee. Unclaimed seats are not in the pot. Watch what&apos;s
+            left as you assign prizes.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -326,7 +327,7 @@ export function PrizeConfigForm({
               label="Entry fee"
               value={formatMoney(parseMoney(entryFee), currency)}
             />
-            <Row label="Managers" value={String(managerCount)} />
+            <Row label="Verified managers" value={String(managerCount)} />
             <Row
               label={`Weekly × ${plannedGameweeks}`}
               value={`−${formatMoney(weeklyTotal, currency)}`}

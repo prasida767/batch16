@@ -4,12 +4,9 @@ import {
   SetupState,
 } from "@/components/league/shared";
 import { LeagueHub } from "@/components/league/league-hub";
+import { FeatureErrorBoundary } from "@/components/error-boundary";
 import { getVerifiedManager } from "@/lib/auth/session";
-import { getActingManagerId } from "@/lib/challenges";
-import {
-  ensureDocumentaryEpisodes,
-  getLatestDocumentaryEpisode,
-} from "@/lib/documentary";
+import { getLatestDocumentaryEpisode } from "@/lib/documentary";
 import { getDashboardData } from "@/lib/league";
 import { getUpcomingFixtures } from "@/lib/fpl";
 import { isDatabaseConfigured } from "@/lib/db";
@@ -17,7 +14,23 @@ import { isDatabaseConfigured } from "@/lib/db";
 export const dynamic = "force-dynamic";
 
 export default async function LeaguePage() {
-  const result = await getDashboardData();
+  let result: Awaited<ReturnType<typeof getDashboardData>>;
+  try {
+    result = await getDashboardData();
+  } catch (error) {
+    return (
+      <div className="space-y-6">
+        <PageHeader eyebrow="League" title="League table" />
+        <ErrorState
+          message={
+            error instanceof Error
+              ? error.message
+              : "Couldn't load the league right now."
+          }
+        />
+      </div>
+    );
+  }
   const me = await getVerifiedManager().catch(() => null);
 
   if (result.kind === "no_league") {
@@ -55,22 +68,22 @@ export default async function LeaguePage() {
   let latestEpisode = null;
   if (isDatabaseConfigured()) {
     try {
-      await ensureDocumentaryEpisodes();
-      const viewerId = await getActingManagerId();
-      latestEpisode = await getLatestDocumentaryEpisode(viewerId);
+      latestEpisode = await getLatestDocumentaryEpisode(me?.managerId ?? null);
     } catch {
       latestEpisode = null;
     }
   }
 
   return (
-    <LeagueHub
-      initial={data}
-      currency={data.prize.currency}
-      lastWinnerHint={lastWinnerHint}
-      initialFixtures={fixtures}
-      featuredEpisode={latestEpisode}
-      highlightEntryId={me?.fplEntryId ?? null}
-    />
+    <FeatureErrorBoundary name="League">
+      <LeagueHub
+        initial={data}
+        currency={data.prize.currency}
+        lastWinnerHint={lastWinnerHint}
+        initialFixtures={fixtures}
+        featuredEpisode={latestEpisode}
+        highlightEntryId={me?.fplEntryId ?? null}
+      />
+    </FeatureErrorBoundary>
   );
 }

@@ -73,7 +73,10 @@ export function RivalryHeatmap({
                   }
                   initial={reduce ? false : { opacity: 0, scale: 0.6 }}
                   animate={{ opacity: 1, scale: 1 }}
-                  transition={{ delay: (i * n + j) * 0.004, duration: 0.25 }}
+                  transition={{
+                    delay: Math.min((i * n + j) * 0.004, 0.4),
+                    duration: 0.25,
+                  }}
                   whileHover={reduce ? undefined : { scale: 1.15, zIndex: 2 }}
                 />
               );

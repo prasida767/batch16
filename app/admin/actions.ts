@@ -68,6 +68,7 @@ async function requireAdminAction(): Promise<ActionResult | null> {
 export async function getAdminOverview(): Promise<{
   configured: boolean;
   managerCount: number;
+  verifiedCount: number;
   historicalManagerCount: number;
   weeklyResultCount: number;
   hasPrizeConfig: boolean;
@@ -79,6 +80,7 @@ export async function getAdminOverview(): Promise<{
     return {
       configured: false,
       managerCount: 0,
+      verifiedCount: 0,
       historicalManagerCount: 0,
       weeklyResultCount: 0,
       hasPrizeConfig: false,
@@ -87,23 +89,30 @@ export async function getAdminOverview(): Promise<{
   }
 
   const db = getDb();
-  const [[leagueManagers], [allManagers], [weeklyTotal], [prizeRow]] =
-    await Promise.all([
-      db
-        .select({ value: count() })
-        .from(managers)
-        .where(isNotNull(managers.fplEntryId)),
-      db.select({ value: count() }).from(managers),
-      db.select({ value: count() }).from(weeklyResults),
-      db.select({ id: prizeConfig.id }).from(prizeConfig).limit(1),
-    ]);
+  const [leagueManagers] = await db
+    .select({ value: count() })
+    .from(managers)
+    .where(isNotNull(managers.fplEntryId));
+  const [verifiedManagers] = await db
+    .select({ value: count() })
+    .from(managers)
+    .innerJoin(managerAccounts, eq(managerAccounts.managerId, managers.id))
+    .where(isNotNull(managers.fplEntryId));
+  const [allManagers] = await db.select({ value: count() }).from(managers);
+  const [weeklyTotal] = await db.select({ value: count() }).from(weeklyResults);
+  const [prizeRow] = await db
+    .select({ id: prizeConfig.id })
+    .from(prizeConfig)
+    .limit(1);
 
   const leagueCount = leagueManagers?.value ?? 0;
+  const verifiedCount = verifiedManagers?.value ?? 0;
   const totalCount = allManagers?.value ?? 0;
 
   return {
     configured: true,
     managerCount: leagueCount,
+    verifiedCount,
     historicalManagerCount: Math.max(0, totalCount - leagueCount),
     weeklyResultCount: weeklyTotal?.value ?? 0,
     hasPrizeConfig: Boolean(prizeRow),
@@ -386,6 +395,19 @@ export async function setEntryFeePaid(formData: FormData): Promise<ActionResult>
 
     if (!Number.isInteger(managerId) || managerId <= 0) {
       return { ok: false, message: "Invalid manager." };
+    }
+
+    const [claimed] = await db
+      .select({ id: managerAccounts.id })
+      .from(managerAccounts)
+      .where(eq(managerAccounts.managerId, managerId))
+      .limit(1);
+    if (!claimed) {
+      return {
+        ok: false,
+        message:
+          "That manager hasn't claimed their seat yet. Entry fees go into the pot only after they join.",
+      };
     }
 
     const [existing] = await db
@@ -774,10 +796,11 @@ export async function getPrizeAdminData(): Promise<{
   await requireAdmin();
   const db = await requireDb();
   const [row] = await db.select().from(prizeConfig).limit(1);
-  // Pot = entry fee × current-season managers (FPL-linked), not historical imports.
+  // Pot = entry fee × verified (claimed) managers, not the full FPL roster.
   const [totals] = await db
     .select({ value: count() })
     .from(managers)
+    .innerJoin(managerAccounts, eq(managerAccounts.managerId, managers.id))
     .where(isNotNull(managers.fplEntryId));
 
   return {
@@ -875,11 +898,9 @@ export async function importHistoricalData(
 export async function getActivityAdminData() {
   await requireAdmin();
   await requireDb();
-  const [managersList, events, prizeDisplay] = await Promise.all([
-    listLeagueManagersForActivity(),
-    listRecentActivityEvents(50),
-    getActivityPrizeDisplay(),
-  ]);
+  const managersList = await listLeagueManagersForActivity();
+  const events = await listRecentActivityEvents(50);
+  const prizeDisplay = await getActivityPrizeDisplay();
   return {
     managers: managersList,
     events,

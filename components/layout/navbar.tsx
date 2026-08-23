@@ -7,6 +7,7 @@ import { signOutAction } from "@/app/auth/actions";
 import { Batch16Brand } from "@/components/brand/batch16-mark";
 import { ThemeToggle } from "@/components/layout/theme-toggle";
 import { NotificationBell } from "@/components/notifications/notification-bell";
+import { FeatureErrorBoundary } from "@/components/error-boundary";
 import { Button, buttonVariants } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -32,6 +33,7 @@ const PRIMARY_LINKS: NavLink[] = [
   { href: "/league", label: "League" },
   { href: "/live", label: "Live" },
   { href: "/challenges", label: "Baaji" },
+  { href: "/dressing-room", label: "Dressing Room" },
   { href: "/rivalries", label: "Rivalries" },
   { href: "/awards", label: "Awards" },
   { href: "/documentary", label: "Documentary" },
@@ -97,7 +99,12 @@ export function Navbar({
           {links
             .filter(
               (link) =>
-                !["/rivalries", "/past-seasons", "/awards"].includes(link.href),
+                ![
+                  "/rivalries",
+                  "/past-seasons",
+                  "/awards",
+                  "/dressing-room",
+                ].includes(link.href),
             )
             .map((link) => (
               <Link
@@ -122,7 +129,11 @@ export function Navbar({
               Link manager
             </Link>
           ) : null}
-          {showNotifications ? <NotificationBell /> : null}
+          {showNotifications ? (
+            <FeatureErrorBoundary name="notifications" fallback={null}>
+              <NotificationBell />
+            </FeatureErrorBoundary>
+          ) : null}
           <AccountMenu label={authLabel ?? null} className="hidden sm:block" />
           <ThemeToggle />
           <Sheet>

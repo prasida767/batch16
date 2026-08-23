@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import { cn } from "@/lib/utils";
 
 /** Shared elegant football pitch surface (SVG markings + soft grass). */
@@ -9,11 +9,13 @@ export function PitchSurface({
   className,
   aspectClassName = "aspect-[5/7]",
   label,
+  style,
 }: {
   children?: ReactNode;
   className?: string;
   aspectClassName?: string;
   label?: string;
+  style?: CSSProperties;
 }) {
   return (
     <div
@@ -22,6 +24,7 @@ export function PitchSurface({
         aspectClassName,
         className,
       )}
+      style={style}
     >
       <div
         aria-hidden

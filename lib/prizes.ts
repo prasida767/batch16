@@ -56,6 +56,15 @@ export function totalPot(entryFee: number, managerCount: number): number {
   return parseMoney(entryFee) * Math.max(0, managerCount);
 }
 
+/** Only claimed (verified) FPL managers fund the prize pot. */
+export function managersInPot(
+  managers: Array<{ fplEntryId: number | null; verified: boolean }>,
+): number {
+  return managers.filter(
+    (manager) => manager.fplEntryId != null && manager.verified,
+  ).length;
+}
+
 export function customPrizesTotal(prizes: CustomPrize[]): number {
   return prizes.reduce((sum, prize) => sum + parseMoney(prize.amount), 0);
 }

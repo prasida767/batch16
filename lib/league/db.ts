@@ -5,9 +5,11 @@ import { eq } from "drizzle-orm";
 import {
   getDb,
   isDatabaseConfigured,
+  isStatementTimeout,
   managers,
   managerAccounts,
   prizeConfig,
+  resetDbClient,
   weeklyResults,
   balances,
 } from "@/lib/db";
@@ -151,6 +153,9 @@ async function loadLeagueDbState(): Promise<LeagueDbState> {
     };
   } catch (error) {
     console.error("[league] Database read failed", error);
+    if (isStatementTimeout(error)) {
+      resetDbClient();
+    }
     return empty;
   }
 }

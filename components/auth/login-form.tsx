@@ -91,7 +91,11 @@ export function LoginForm({
           <p className="text-center text-sm text-muted-foreground">
             New here?{" "}
             <Link
-              href="/auth/register"
+              href={
+                nextPath
+                  ? `/auth/register?next=${encodeURIComponent(nextPath)}`
+                  : "/auth/register"
+              }
               className="font-medium text-foreground underline"
             >
               Create an account

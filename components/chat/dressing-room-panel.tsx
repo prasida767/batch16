@@ -56,6 +56,7 @@ function MessageBubble({
   onReply,
   onReact,
   onPin,
+  canInteract,
 }: {
   message: ChatMessageView;
   mine: boolean;
@@ -63,6 +64,7 @@ function MessageBubble({
   onReply: (m: ChatMessageView) => void;
   onReact: (id: number, emoji: string) => void;
   onPin: (id: number) => void;
+  canInteract: boolean;
 }) {
   const [picker, setPicker] = useState(false);
 
@@ -140,7 +142,8 @@ function MessageBubble({
               <button
                 key={r.emoji}
                 type="button"
-                onClick={() => onReact(message.id, r.emoji)}
+                onClick={() => canInteract && onReact(message.id, r.emoji)}
+                disabled={!canInteract}
                 className={cn(
                   "inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[11px] transition-colors",
                   r.reactedByMe
@@ -155,12 +158,15 @@ function MessageBubble({
           </div>
         ) : null}
 
+        {canInteract || isAdmin ? (
         <div
           className={cn(
             "flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100",
             mine && "justify-end",
           )}
         >
+          {canInteract ? (
+            <>
           <Button
             type="button"
             variant="ghost"
@@ -209,6 +215,8 @@ function MessageBubble({
               ) : null}
             </AnimatePresence>
           </div>
+            </>
+          ) : null}
           {isAdmin ? (
             <Button
               type="button"
@@ -222,6 +230,7 @@ function MessageBubble({
             </Button>
           ) : null}
         </div>
+        ) : null}
       </div>
     </motion.article>
   );
@@ -398,6 +407,7 @@ function ChatCentre({
                 message={m}
                 mine={m.managerId === (actingManagerId ?? managerId)}
                 isAdmin={Boolean(isAdmin)}
+                canInteract={canPost}
                 onReply={setReplyTo}
                 onReact={(id, emoji) => {
                   void react(id, emoji).catch((err) =>

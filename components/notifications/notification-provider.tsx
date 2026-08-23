@@ -16,6 +16,7 @@ import { createClient } from "@/lib/supabase/client";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 import { formatTimeAgo } from "@/lib/notifications/time-ago";
 import type { NotificationView } from "@/lib/notifications/types";
+import { FeatureErrorBoundary } from "@/components/error-boundary";
 import { cn } from "@/lib/utils";
 
 type ToastItem = NotificationView & { toastId: string };
@@ -66,6 +67,8 @@ export function NotificationProvider({
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const seenIds = useRef<Set<number>>(new Set());
   const ready = useRef(false);
+  const itemsRef = useRef<NotificationView[]>([]);
+  itemsRef.current = items;
 
   const dismissToast = useCallback((toastId: string) => {
     setToasts((prev) => prev.filter((t) => t.toastId !== toastId));
@@ -95,17 +98,11 @@ export function NotificationProvider({
           enqueueToast(n);
         }
       }
-
-      setUnreadCount((prev) => {
-        // Recompute from merged set is safer after state update; approximate here
-        // and correct on refresh. We'll set from payload when full list refresh.
-        return prev;
-      });
     },
     [enqueueToast],
   );
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (mode: "full" | "incremental" = "full") => {
     if (!managerId) {
       setItems([]);
       setUnreadCount(0);
@@ -113,26 +110,46 @@ export function NotificationProvider({
       return;
     }
     try {
-      const res = await fetch("/api/notifications?limit=40", {
-        cache: "no-store",
-      });
-      const data = (await res.json()) as
+      const afterId =
+        mode === "incremental"
+          ? itemsRef.current.reduce((max, n) => (n.id > max ? n.id : max), 0)
+          : 0;
+      const url =
+        afterId > 0
+          ? `/api/notifications?limit=20&after=${afterId}`
+          : "/api/notifications?limit=40";
+      const res = await fetch(url, { cache: "no-store" });
+      if (!res.ok) return;
+      const data = (await res.json().catch(() => null)) as
         | {
             kind: "ok";
             items: NotificationView[];
             unreadCount: number;
           }
-        | { kind: "error"; message: string };
-      if (data.kind !== "ok") return;
+        | { kind: "error"; message: string }
+        | null;
+      if (!data || data.kind !== "ok") return;
 
-      for (const n of data.items) seenIds.current.add(n.id);
-      setItems(data.items);
+      const isFirst = !ready.current;
+      if (afterId > 0) {
+        ingest(data.items, { toastNew: !isFirst });
+      } else {
+        for (const n of data.items) {
+          if (!isFirst && !seenIds.current.has(n.id) && !n.readAt) {
+            enqueueToast(n);
+          }
+          seenIds.current.add(n.id);
+        }
+        setItems(data.items);
+      }
       setUnreadCount(data.unreadCount);
       ready.current = true;
+    } catch {
+      // Keep the last good list — a failed poll must not blank the bell.
     } finally {
       setLoading(false);
     }
-  }, [managerId]);
+  }, [managerId, ingest, enqueueToast]);
 
   const pushLocal = useCallback(
     (n: NotificationView) => {
@@ -143,20 +160,27 @@ export function NotificationProvider({
   );
 
   const markRead = useCallback(async (id: number) => {
-    setItems((prev) =>
-      prev.map((n) =>
-        n.id === id && !n.readAt
-          ? { ...n, readAt: new Date().toISOString() }
-          : n,
-      ),
-    );
-    setUnreadCount((c) => Math.max(0, c - 1));
-    await fetch("/api/notifications", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "read", id }),
+    let shouldDecrement = false;
+    setItems((prev) => {
+      const target = prev.find((n) => n.id === id);
+      shouldDecrement = Boolean(target && !target.readAt);
+      if (!shouldDecrement) return prev;
+      return prev.map((n) =>
+        n.id === id ? { ...n, readAt: new Date().toISOString() } : n,
+      );
     });
-  }, []);
+    if (shouldDecrement) setUnreadCount((c) => Math.max(0, c - 1));
+    try {
+      const res = await fetch("/api/notifications", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "read", id }),
+      });
+      if (!res.ok) void refresh("full");
+    } catch {
+      void refresh("full");
+    }
+  }, [refresh]);
 
   const markAllRead = useCallback(async () => {
     setItems((prev) =>
@@ -165,12 +189,16 @@ export function NotificationProvider({
       ),
     );
     setUnreadCount(0);
-    await fetch("/api/notifications", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "read_all" }),
-    });
-  }, []);
+    try {
+      await fetch("/api/notifications", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "read_all" }),
+      });
+    } catch {
+      void refresh("full");
+    }
+  }, [refresh]);
 
   useEffect(() => {
     ready.current = false;
@@ -199,33 +227,40 @@ export function NotificationProvider({
               filter: `recipient_manager_id=eq.${managerId}`,
             },
             (payload) => {
-              const row = payload.new as {
-                id: number;
-                recipient_manager_id: number;
-                actor_manager_id: number | null;
-                type: string;
-                title: string;
-                body: string | null;
-                href: string | null;
-                meta: Record<string, unknown> | null;
-                read_at: string | null;
-                created_at: string;
-              };
-              const view: NotificationView = {
-                id: row.id,
-                recipientManagerId: row.recipient_manager_id,
-                actorManagerId: row.actor_manager_id,
-                actorName: null,
-                type: row.type,
-                title: row.title,
-                body: row.body,
-                href: row.href,
-                meta: row.meta ?? {},
-                readAt: row.read_at,
-                createdAt: row.created_at,
-              };
-              ingest([view], { toastNew: true });
-              setUnreadCount((c) => c + 1);
+              try {
+                const row = payload.new as {
+                  id?: unknown;
+                  recipient_manager_id?: unknown;
+                  actor_manager_id?: number | null;
+                  type?: string;
+                  title?: string;
+                  body?: string | null;
+                  href?: string | null;
+                  meta?: Record<string, unknown> | null;
+                  read_at?: string | null;
+                  created_at?: string;
+                } | null;
+                const id = Number(row?.id);
+                if (!row || !Number.isInteger(id) || id <= 0) return;
+                if (seenIds.current.has(id)) return;
+                const view: NotificationView = {
+                  id,
+                  recipientManagerId: Number(row.recipient_manager_id) || 0,
+                  actorManagerId: row.actor_manager_id ?? null,
+                  actorName: null,
+                  type: row.type ?? "notice",
+                  title: row.title ?? "Notification",
+                  body: row.body ?? null,
+                  href: row.href ?? null,
+                  meta: row.meta ?? {},
+                  readAt: row.read_at ?? null,
+                  createdAt: row.created_at ?? new Date().toISOString(),
+                };
+                ingest([view], { toastNew: true });
+                if (!view.readAt) setUnreadCount((c) => c + 1);
+              } catch {
+                // A bad realtime payload must not take down the shell.
+              }
             },
           )
           .subscribe();
@@ -234,12 +269,16 @@ export function NotificationProvider({
       }
     }
 
-    const pollTimer = window.setInterval(() => {
-      void refresh();
+    const incrementalTimer = window.setInterval(() => {
+      void refresh("incremental");
+    }, 10_000);
+    const fullTimer = window.setInterval(() => {
+      void refresh("full");
     }, 45_000);
 
     return () => {
-      window.clearInterval(pollTimer);
+      window.clearInterval(incrementalTimer);
+      window.clearInterval(fullTimer);
       if (channel && isSupabaseConfigured()) {
         try {
           createClient().removeChannel(channel);
@@ -276,7 +315,9 @@ export function NotificationProvider({
   return (
     <NotificationsContext.Provider value={value}>
       {children}
-      <ToastStack toasts={toasts} onDismiss={dismissToast} />
+      <FeatureErrorBoundary name="toasts" fallback={null}>
+        <ToastStack toasts={toasts} onDismiss={dismissToast} />
+      </FeatureErrorBoundary>
     </NotificationsContext.Provider>
   );
 }

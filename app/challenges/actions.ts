@@ -3,17 +3,18 @@
 import { revalidatePath } from "next/cache";
 import type { ActionResult } from "@/lib/admin/shared";
 import {
+  autoResolveFinishedBaajis,
   cancelChallenge,
   createChallenge,
   getActingManagerId,
   getChallengesBoard,
-  listAcceptedChallengesForAdmin,
   listAllChallengesForAdmin,
   listChallengeManagers,
   resolveChallenge,
   respondToChallenge,
 } from "@/lib/challenges";
-import { requireAdmin } from "@/lib/auth/session";
+import { getAuthStatus, requireAdmin } from "@/lib/auth/session";
+import { parsePositiveInt, parseStakeNpr, CHALLENGE_STATUS } from "@/lib/challenges/types";
 import { isDatabaseConfigured } from "@/lib/db";
 import { getCurrentGameweek } from "@/lib/fpl";
 
@@ -29,26 +30,45 @@ export async function getChallengesPageData() {
     return { kind: "no_db" as const };
   }
 
-  const [actingManagerId, managers, currentGameweek] = await Promise.all([
-    getActingManagerId(),
-    listChallengeManagers(),
-    getCurrentGameweek().catch(() => null),
-  ]);
+  try {
+    const currentGameweekPromise = getCurrentGameweek().catch(() => null);
+    const auth = await getAuthStatus();
+    const actingManagerId = auth.manager?.managerId ?? null;
 
-  const board = await getChallengesBoard(actingManagerId);
-  const acting =
-    actingManagerId != null
-      ? managers.find((m) => m.id === actingManagerId) ?? null
-      : null;
+    await autoResolveFinishedBaajis();
+    const managers = await listChallengeManagers();
+    const board = await getChallengesBoard(actingManagerId);
+    const currentGameweek = await currentGameweekPromise;
 
-  return {
-    kind: "ok" as const,
-    actingManagerId,
-    acting,
-    managers,
-    currentGameweek,
-    ...board,
-  };
+    const acting =
+      actingManagerId != null
+        ? (managers.find((m) => m.id === actingManagerId) ??
+          (auth.manager
+            ? {
+                id: auth.manager.managerId,
+                displayName: auth.manager.displayName,
+                fplEntryId: auth.manager.fplEntryId,
+              }
+            : null))
+        : null;
+
+    return {
+      kind: "ok" as const,
+      signedIn: auth.signedIn,
+      actingManagerId,
+      acting,
+      managers,
+      currentGameweek,
+      ...board,
+    };
+  } catch (error) {
+    console.error("[baaji] page data failed", error);
+    return {
+      kind: "error" as const,
+      message:
+        error instanceof Error ? error.message : "Couldn't load Baaji right now.",
+    };
+  }
 }
 
 /** @deprecated Cookie identity removed — use /auth/register. */
@@ -70,17 +90,21 @@ export async function createChallengeAction(
       return { ok: false, message: "Verify your manager account first." };
     }
 
-    const opponentId = Number(formData.get("opponentId"));
+    const opponentId = parsePositiveInt(formData.get("opponentId"));
+    if (opponentId == null) {
+      return { ok: false, message: "Pick a verified manager to challenge." };
+    }
+
     const description = String(formData.get("description") ?? "");
-    const stakeRaw = String(formData.get("stakeNpr") ?? "").trim();
-    const gwRaw = String(formData.get("gameweek") ?? "").trim();
+    const stakeNpr = parseStakeNpr(formData.get("stakeNpr"));
+    const gameweek = parsePositiveInt(formData.get("gameweek"));
 
     await createChallenge({
       creatorId,
       opponentId,
       description,
-      stakeNpr: stakeRaw ? Number(stakeRaw) : null,
-      gameweek: gwRaw ? Number(gwRaw) : null,
+      stakeNpr,
+      gameweek,
     });
 
     revalidateChallengePaths();
@@ -105,7 +129,10 @@ export async function respondChallengeAction(
     if (actorId == null) {
       return { ok: false, message: "Verify your manager account first." };
     }
-    const challengeId = Number(formData.get("challengeId"));
+    const challengeId = parsePositiveInt(formData.get("challengeId"));
+    if (challengeId == null) {
+      return { ok: false, message: "Invalid baaji." };
+    }
     const accept = String(formData.get("decision")) === "accept";
 
     await respondToChallenge({ challengeId, actorId, accept });
@@ -133,8 +160,11 @@ export async function resolveChallengeAction(
     if (actorId == null) {
       return { ok: false, message: "Verify your manager account first." };
     }
-    const challengeId = Number(formData.get("challengeId"));
-    const winnerId = Number(formData.get("winnerId"));
+    const challengeId = parsePositiveInt(formData.get("challengeId"));
+    const winnerId = parsePositiveInt(formData.get("winnerId"));
+    if (challengeId == null || winnerId == null) {
+      return { ok: false, message: "Pick a winner." };
+    }
 
     await resolveChallenge({ challengeId, actorId, winnerId });
     revalidateChallengePaths();
@@ -156,7 +186,10 @@ export async function cancelChallengeAction(
     if (actorId == null) {
       return { ok: false, message: "Verify your manager account first." };
     }
-    const challengeId = Number(formData.get("challengeId"));
+    const challengeId = parsePositiveInt(formData.get("challengeId"));
+    if (challengeId == null) {
+      return { ok: false, message: "Invalid baaji." };
+    }
     await cancelChallenge({ challengeId, actorId });
     revalidateChallengePaths();
     return { ok: true, message: "Baaji cancelled." };
@@ -170,13 +203,31 @@ export async function cancelChallengeAction(
 }
 
 export async function getAdminChallengesData() {
-  await requireAdmin();
-  if (!isDatabaseConfigured()) return { kind: "no_db" as const };
-  const [accepted, season] = await Promise.all([
-    listAcceptedChallengesForAdmin(),
-    listAllChallengesForAdmin(),
-  ]);
-  return { kind: "ok" as const, accepted, season };
+  try {
+    await requireAdmin();
+    if (!isDatabaseConfigured()) return { kind: "no_db" as const };
+    await autoResolveFinishedBaajis();
+    const season = await listAllChallengesForAdmin();
+    const accepted = season.filter(
+      (row) => row.status === CHALLENGE_STATUS.ACCEPTED,
+    );
+    return { kind: "ok" as const, accepted, season };
+  } catch (error) {
+    if (
+      error &&
+      typeof error === "object" &&
+      "digest" in error &&
+      String((error as { digest?: string }).digest).startsWith("NEXT_REDIRECT")
+    ) {
+      throw error;
+    }
+    console.error("[baaji] admin data failed", error);
+    return {
+      kind: "error" as const,
+      message:
+        error instanceof Error ? error.message : "Couldn't load Baaji admin.",
+    };
+  }
 }
 
 export async function adminResolveChallengeAction(
@@ -184,10 +235,17 @@ export async function adminResolveChallengeAction(
 ): Promise<ActionResult> {
   try {
     await requireAdmin();
-    const challengeId = Number(formData.get("challengeId"));
-    const winnerId = Number(formData.get("winnerId"));
-    const accepted = await listAcceptedChallengesForAdmin();
-    const challenge = accepted.find((c) => c.id === challengeId);
+    const challengeId = parsePositiveInt(formData.get("challengeId"));
+    const winnerId = parsePositiveInt(formData.get("winnerId"));
+    if (challengeId == null || winnerId == null) {
+      return { ok: false, message: "Pick a winner." };
+    }
+
+    const season = await listAllChallengesForAdmin();
+    const challenge = season.find(
+      (row) =>
+        row.id === challengeId && row.status === CHALLENGE_STATUS.ACCEPTED,
+    );
     if (!challenge) {
       return { ok: false, message: "Challenge not found or not accepted." };
     }
@@ -201,7 +259,6 @@ export async function adminResolveChallengeAction(
     revalidateChallengePaths();
     return { ok: true, message: "Winner recorded by admin." };
   } catch (error) {
-    // Let Next.js redirects (non-admin) bubble.
     if (
       error &&
       typeof error === "object" &&

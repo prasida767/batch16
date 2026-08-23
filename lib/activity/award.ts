@@ -31,38 +31,35 @@ export async function awardActivityPoints(
   const db = getDb();
   const actionKey = input.actionKey?.trim() || ACTIVITY_ACTIONS.MANUAL;
 
-  const updated = await db.transaction(async (tx) => {
-    const [manager] = await tx
-      .select({
-        id: managers.id,
-        activityPoints: managers.activityPoints,
-      })
-      .from(managers)
-      .where(eq(managers.id, input.managerId))
-      .limit(1);
+  // Sequential writes — never db.transaction(). Supabase's transaction-mode
+  // pooler (PgBouncer) cannot BEGIN/COMMIT and that crash takes the app down.
+  const [manager] = await db
+    .select({
+      id: managers.id,
+      activityPoints: managers.activityPoints,
+    })
+    .from(managers)
+    .where(eq(managers.id, input.managerId))
+    .limit(1);
 
-    if (!manager) {
-      throw new Error("Manager not found.");
-    }
+  if (!manager) {
+    throw new Error("Manager not found.");
+  }
 
-    const next = manager.activityPoints + delta;
-    // Allow going negative only if intentional; clamp floor at a sane bound? User said add/subtract — allow any integer.
-    await tx
-      .update(managers)
-      .set({ activityPoints: next })
-      .where(eq(managers.id, input.managerId));
+  const next = manager.activityPoints + delta;
+  await db
+    .update(managers)
+    .set({ activityPoints: next })
+    .where(eq(managers.id, input.managerId));
 
-    await tx.insert(activityEvents).values({
-      managerId: input.managerId,
-      delta,
-      reason,
-      actionKey,
-    });
-
-    return next;
+  await db.insert(activityEvents).values({
+    managerId: input.managerId,
+    delta,
+    reason,
+    actionKey,
   });
 
-  return { activityPoints: updated };
+  return { activityPoints: next };
 }
 
 export async function getActivityPrizeDisplay(): Promise<string> {

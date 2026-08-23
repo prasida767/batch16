@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { ClaimForm } from "@/components/auth/claim-form";
 import { PageHeader } from "@/components/league/shared";
 import { signOutAction } from "@/app/auth/actions";
+import { loginPath, safeNextPath } from "@/lib/auth/paths";
 import { getAuthStatus } from "@/lib/auth/session";
 import { mergeClubsFromBootstrap } from "@/lib/avatars/clubs";
 import { getBootstrapStatic } from "@/lib/fpl";
@@ -18,12 +19,6 @@ import { cn } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
 
-function safeNext(raw: string | undefined): string | null {
-  if (!raw?.startsWith("/") || raw.startsWith("//")) return null;
-  if (raw.startsWith("/auth")) return null;
-  return raw;
-}
-
 export default async function ClaimPage({
   searchParams,
 }: {
@@ -31,14 +26,10 @@ export default async function ClaimPage({
 }) {
   const auth = await getAuthStatus();
   const params = await searchParams;
-  const nextPath = safeNext(params.next);
+  const nextPath = safeNextPath(params.next);
 
   if (!auth.signedIn) {
-    redirect(
-      nextPath
-        ? `/auth/login?next=${encodeURIComponent(nextPath)}`
-        : "/auth/login",
-    );
+    redirect(loginPath(nextPath));
   }
 
   if (auth.verified && auth.manager) {
@@ -100,7 +91,7 @@ export default async function ClaimPage({
       <PageHeader
         eyebrow="Account"
         title="Link your manager"
-        description="Match your name and FPL team, then choose the Premier League club you support for your crest avatar."
+        description="Enter your FPL team name and/or manager name from the standings. We'll match you against the private league roster."
       />
       <ClaimForm email={auth.email ?? ""} nextPath={nextPath} clubs={clubs} />
       <form action={signOutAction} className="mx-auto max-w-md text-center">

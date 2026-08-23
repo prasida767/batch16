@@ -1,12 +1,37 @@
-import { PageHeader, SetupState } from "@/components/league/shared";
+import {
+  ErrorState,
+  PageHeader,
+  SetupState,
+} from "@/components/league/shared";
 import { ChallengesBoard } from "@/components/challenges/challenges-board";
+import { FeatureErrorBoundary } from "@/components/error-boundary";
 import { FadeIn } from "@/components/motion/page-transition";
 import { getChallengesPageData } from "@/app/challenges/actions";
 
 export const dynamic = "force-dynamic";
 
 export default async function ChallengesPage() {
-  const data = await getChallengesPageData();
+  let data: Awaited<ReturnType<typeof getChallengesPageData>>;
+  try {
+    data = await getChallengesPageData();
+  } catch (error) {
+    return (
+      <div className="space-y-6">
+        <PageHeader
+          eyebrow="Match day"
+          title="Baaji"
+          description="Friendly wagers between managers — stakes are tracked only."
+        />
+        <ErrorState
+          message={
+            error instanceof Error
+              ? error.message
+              : "Couldn't load Baaji right now."
+          }
+        />
+      </div>
+    );
+  }
 
   if (data.kind === "no_db") {
     return (
@@ -20,6 +45,19 @@ export default async function ChallengesPage() {
           title="Connect the database"
           body="Set DATABASE_URL and run migrations before using Baaji."
         />
+      </div>
+    );
+  }
+
+  if (data.kind === "error") {
+    return (
+      <div className="space-y-6">
+        <PageHeader
+          eyebrow="Match day"
+          title="Baaji"
+          description="Friendly wagers between managers — stakes are tracked only."
+        />
+        <ErrorState message={data.message} />
       </div>
     );
   }
@@ -45,22 +83,24 @@ export default async function ChallengesPage() {
             </h1>
             <p className="max-w-xl text-sm text-emerald-100/70 sm:text-[0.95rem]">
               Every wager is a fixture. Crowds, kick-offs, and full-time drama —
-              stakes tracked in NPR, winners declared by admin.
+              stakes tracked in NPR, winners declared by admin or by GW score.
             </p>
           </div>
         </div>
       </FadeIn>
       <FadeIn delay={0.04}>
-        <ChallengesBoard
-          actingManagerId={data.actingManagerId}
-          actingName={data.acting?.displayName ?? null}
-          signedIn
-          managers={data.managers}
-          currentGameweek={data.currentGameweek}
-          awaitingYou={data.awaitingYou}
-          active={data.active}
-          season={data.season}
-        />
+        <FeatureErrorBoundary name="Baaji">
+          <ChallengesBoard
+            actingManagerId={data.actingManagerId}
+            actingName={data.acting?.displayName ?? null}
+            signedIn={data.signedIn}
+            managers={data.managers}
+            currentGameweek={data.currentGameweek}
+            awaitingYou={data.awaitingYou}
+            active={data.active}
+            season={data.season}
+          />
+        </FeatureErrorBoundary>
       </FadeIn>
     </div>
   );

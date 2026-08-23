@@ -145,9 +145,13 @@ export type LivePlayerScorer = {
 export type LiveStandingsPayload = {
   isLive: boolean;
   isProvisional: boolean;
+  /** True when FPL /event/{id}/live returned usable stats this request. */
+  liveStatsReady: boolean;
   leagueName: string;
   currentEventId: number | null;
   currentEventName: string | null;
+  nextEventName: string | null;
+  nextDeadline: string | null;
   fetchedAt: string;
   standings: LiveStandingUpdate[];
   /** Highest GW points among managers this gameweek. */

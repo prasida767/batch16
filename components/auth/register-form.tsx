@@ -131,7 +131,11 @@ export function RegisterForm({ nextPath }: { nextPath?: string | null }) {
           <p className="text-center text-sm text-muted-foreground">
             Already have an account?{" "}
             <Link
-              href="/auth/login"
+              href={
+                nextPath
+                  ? `/auth/login?next=${encodeURIComponent(nextPath)}`
+                  : "/auth/login"
+              }
               className="font-medium text-foreground underline"
             >
               Sign in

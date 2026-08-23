@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 
+export const dynamic = "force-dynamic";
+
 export default function NotFound() {
   return (
     <div className="mx-auto flex min-h-[50vh] w-full max-w-lg flex-col items-center justify-center gap-4 px-4 py-16 text-center">

@@ -1,15 +1,10 @@
 import { PageHeader } from "@/components/league/shared";
 import { RegisterForm } from "@/components/auth/register-form";
+import { afterAuthPath, safeNextPath } from "@/lib/auth/paths";
 import { getAuthStatus } from "@/lib/auth/session";
 import { redirect } from "next/navigation";
 
 export const dynamic = "force-dynamic";
-
-function safeNext(raw: string | undefined): string | null {
-  if (!raw?.startsWith("/") || raw.startsWith("//")) return null;
-  if (raw.startsWith("/auth")) return null;
-  return raw;
-}
 
 export default async function RegisterPage({
   searchParams,
@@ -18,14 +13,15 @@ export default async function RegisterPage({
 }) {
   const auth = await getAuthStatus();
   const params = await searchParams;
-  const nextPath = safeNext(params.next);
+  const nextPath = safeNextPath(params.next);
 
-  if (auth.verified) redirect(nextPath ?? "/league");
   if (auth.signedIn) {
     redirect(
-      nextPath
-        ? `/auth/claim?next=${encodeURIComponent(nextPath)}`
-        : "/auth/claim",
+      afterAuthPath({
+        verified: auth.verified,
+        claimState: auth.claimState,
+        next: nextPath,
+      }),
     );
   }
 

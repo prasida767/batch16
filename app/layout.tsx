@@ -4,6 +4,9 @@ import { SiteShell } from "@/components/layout/site-shell";
 import { ThemeProvider } from "@/components/providers/theme-provider";
 import "./globals.css";
 
+export const dynamic = "force-dynamic";
+export const maxDuration = 30;
+
 const geistSans = Geist({
   variable: "--font-sans",
   subsets: ["latin"],

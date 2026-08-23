@@ -8,6 +8,7 @@ import { PitchSurface } from "@/components/league/pitch-surface";
 import { AnimatedNumber } from "@/components/motion/animated-number";
 import { easeOutSoft, springSoft } from "@/components/motion/variants";
 import { initials, rankDelta } from "@/lib/league/format";
+import { pressureCrowdMeters } from "@/lib/league/live";
 import { cn } from "@/lib/utils";
 
 export type VerticalPitchRow = {
@@ -22,6 +23,7 @@ export type VerticalPitchRow = {
   /** Secondary line — usually GW points. */
   gwPoints?: number | null;
   avatarUrl?: string | null;
+  verified?: boolean;
 };
 
 export type PitchRankMode = "live" | "overall";
@@ -29,18 +31,6 @@ export type PitchRankMode = "live" | "overall";
 function shortName(name: string) {
   const first = name.trim().split(/\s+/)[0] ?? name;
   return first.length > 10 ? `${first.slice(0, 9)}…` : first;
-}
-
-/** Y% on pitch: 1st near opponent goal, last near own goal. */
-function yForRank(rank: number, total: number) {
-  if (total <= 1) return 50;
-  const t = (rank - 1) / (total - 1);
-  return 9 + t * 80;
-}
-
-/** Alternate left/right lanes so 12–15 pins stay readable. */
-function xForRank(rank: number) {
-  return rank % 2 === 0 ? 68 : 32;
 }
 
 function OvertakeFlash({
@@ -121,13 +111,11 @@ function PointsBump({
 
 function ManagerLane({
   row,
-  total,
   highlightEntryId,
   showGw,
   delay,
 }: {
   row: VerticalPitchRow;
-  total: number;
   highlightEntryId: number | null;
   showGw: boolean;
   delay: number;
@@ -139,38 +127,40 @@ function ManagerLane({
     row.lastRank != null ? rankDelta(row.rank, row.lastRank) : 0;
   const momentum =
     delta > 0 ? "rising" : delta < 0 ? "falling" : "steady";
-  const y = yForRank(row.rank, total);
-  const x = xForRank(row.rank);
+  const muted = row.verified === false;
 
   return (
     <motion.div
       layout={!reduce}
       layoutId={`vpitch-${row.entryId}`}
-      className="absolute z-10 -translate-x-1/2 -translate-y-1/2"
-      style={{ left: `${x}%`, top: `${y}%` }}
-      initial={reduce ? false : { opacity: 0, scale: 0.85 }}
-      animate={{ opacity: 1, scale: 1 }}
+      className="relative z-10 flex w-full justify-center px-3 sm:px-6"
+      initial={reduce ? false : { opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
       transition={{
         layout: { ...springSoft, duration: 0.55 },
         opacity: { duration: 0.35, delay, ease: easeOutSoft },
-        scale: { duration: 0.35, delay, ease: easeOutSoft },
+        y: { duration: 0.35, delay, ease: easeOutSoft },
       }}
     >
+      <div className="relative">
       <OvertakeFlash entryId={row.entryId} rank={row.rank} reduce={reduce} />
       <Link
         href={`/managers/${row.entryId}`}
         className={cn(
-          "group relative flex min-w-[7.25rem] max-w-[9.5rem] items-center gap-1.5 rounded-xl border px-1.5 py-1 shadow-lg backdrop-blur-[3px] outline-none transition-transform sm:min-w-[8.5rem]",
+          "group relative flex min-w-[11.5rem] max-w-[16rem] items-center gap-2 rounded-xl border px-2 py-1.5 shadow-lg backdrop-blur-[3px] outline-none transition-transform sm:min-w-[13rem]",
           isLeader
             ? "border-amber-300/60 bg-amber-400/25"
             : isYou
               ? "border-sky-300/70 bg-sky-500/25"
-              : "border-white/25 bg-black/35",
+              : muted
+                ? "border-white/15 bg-black/25"
+                : "border-white/25 bg-black/35",
           momentum === "rising" && !isYou && !isLeader && "ring-1 ring-emerald-400/40",
           momentum === "falling" && !isYou && !isLeader && "ring-1 ring-red-400/35",
           isYou && "ring-2 ring-sky-300/80 ring-offset-1 ring-offset-transparent",
+          muted && "opacity-70",
         )}
-        title={`${row.name} · #${row.rank}${row.teamName ? ` · ${row.teamName}` : ""}`}
+        title={`${row.name} · #${row.rank}${row.teamName ? ` · ${row.teamName}` : ""}${muted ? " · Unverified" : ""}`}
       >
         <span
           className={cn(
@@ -179,7 +169,9 @@ function ManagerLane({
               ? "bg-amber-300 text-emerald-950"
               : isYou
                 ? "bg-sky-200 text-sky-950"
-                : "bg-white/95 text-emerald-950",
+                : muted
+                  ? "bg-white/70 text-emerald-950 grayscale"
+                  : "bg-white/95 text-emerald-950",
           )}
         >
           {initials(row.name)}
@@ -197,11 +189,7 @@ function ManagerLane({
 
         <span className="min-w-0 flex-1">
           <span className="flex items-center gap-1">
-            <span
-              className={cn(
-                "truncate text-[10px] font-semibold leading-tight text-white sm:text-[11px]",
-              )}
-            >
+            <span className="truncate text-[10px] font-semibold leading-tight text-white sm:text-[11px]">
               {isYou ? "You" : shortName(row.name)}
             </span>
             {momentum === "rising" ? (
@@ -224,8 +212,14 @@ function ManagerLane({
               <PointsBump entryId={row.entryId} value={row.gwPoints} />
             ) : null}
           </span>
+          {row.teamName ? (
+            <span className="block truncate text-[9px] text-white/65">
+              {row.teamName}
+            </span>
+          ) : null}
         </span>
       </Link>
+      </div>
     </motion.div>
   );
 }
@@ -238,22 +232,10 @@ export function PressureCrowdMeter({
   rows: VerticalPitchRow[];
   className?: string;
 }) {
-  const { pressure, crowd, rising, falling } = useMemo(() => {
-    let moveSum = 0;
-    let risingN = 0;
-    let fallingN = 0;
-    for (const row of rows) {
-      if (row.lastRank == null) continue;
-      const d = rankDelta(row.rank, row.lastRank);
-      moveSum += Math.abs(d);
-      if (d > 0) risingN += 1;
-      if (d < 0) fallingN += 1;
-    }
-    const n = Math.max(rows.length, 1);
-    const pressure = Math.min(100, Math.round((moveSum / n) * 28));
-    const crowd = Math.min(100, Math.round(((risingN + fallingN) / n) * 100));
-    return { pressure, crowd, rising: risingN, falling: fallingN };
-  }, [rows]);
+  const { pressure, crowd, rising, falling } = useMemo(
+    () => pressureCrowdMeters(rows),
+    [rows],
+  );
 
   return (
     <div
@@ -312,7 +294,9 @@ function MeterBar({
               : "bg-gradient-to-r from-emerald-500 to-teal-400",
           )}
           initial={false}
-          animate={{ width: `${value}%` }}
+          animate={{
+            width: `${Math.min(100, Math.max(0, Number.isFinite(value) ? value : 0))}%`,
+          }}
           transition={{ duration: 0.6, ease: easeOutSoft }}
         />
       </div>
@@ -337,7 +321,15 @@ export function VerticalPitchRank({
   showMeters?: boolean;
 }) {
   const sorted = useMemo(
-    () => [...rows].sort((a, b) => a.rank - b.rank || a.name.localeCompare(b.name)),
+    () =>
+      [...rows]
+        .filter((row) => Number.isFinite(row.entryId) && row.entryId > 0)
+        .sort(
+          (a, b) =>
+            (Number.isFinite(a.rank) ? a.rank : 9999) -
+              (Number.isFinite(b.rank) ? b.rank : 9999) ||
+            a.name.localeCompare(b.name),
+        ),
     [rows],
   );
   const total = sorted.length;
@@ -348,38 +340,35 @@ export function VerticalPitchRank({
       {showMeters ? <PressureCrowdMeter rows={sorted} /> : null}
 
       <PitchSurface
-        aspectClassName="aspect-[5/8] min-h-[32rem] sm:min-h-[36rem]"
+        aspectClassName="aspect-auto w-full"
+        className="min-h-[32rem]"
+        style={{ height: `${Math.max(32, 7 + total * 3.55)}rem` }}
         label={label ?? (mode === "live" ? "Live pitch rank" : "Overall pitch rank")}
       >
         <div className="pointer-events-none absolute top-3 right-3 z-20 text-[9px] font-medium tracking-wide text-white/75 uppercase sm:text-[10px]">
           <span className="rounded-md bg-black/30 px-2 py-0.5 backdrop-blur-sm">
-            1st → their box
+            1st → goal
           </span>
         </div>
-        <div className="pointer-events-none absolute bottom-3 right-3 z-20 text-[9px] font-medium tracking-wide text-white/75 uppercase sm:text-[10px]">
+        <div className="pointer-events-none absolute right-3 bottom-3 z-20 text-[9px] font-medium tracking-wide text-white/75 uppercase sm:text-[10px]">
           <span className="rounded-md bg-black/30 px-2 py-0.5 backdrop-blur-sm">
             Last → own box
           </span>
         </div>
 
-        {/* Soft center corridor */}
-        <div
-          aria-hidden
-          className="pointer-events-none absolute top-[8%] bottom-[8%] left-1/2 w-px -translate-x-1/2 bg-white/15"
-        />
-
-        <LayoutGroup>
-          {sorted.map((row, i) => (
-            <ManagerLane
-              key={row.entryId}
-              row={row}
-              total={total}
-              highlightEntryId={highlightEntryId}
-              showGw={showGw}
-              delay={0.03 + i * 0.025}
-            />
-          ))}
-        </LayoutGroup>
+        <div className="relative z-10 flex h-full flex-col justify-between py-[7%]">
+          <LayoutGroup>
+            {sorted.map((row, i) => (
+              <ManagerLane
+                key={row.entryId}
+                row={row}
+                highlightEntryId={highlightEntryId}
+                showGw={showGw}
+                delay={0.03 + i * 0.025}
+              />
+            ))}
+          </LayoutGroup>
+        </div>
 
         {total === 0 ? (
           <p className="absolute inset-0 z-20 flex items-center justify-center text-sm text-white/80">

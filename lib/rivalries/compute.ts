@@ -71,6 +71,24 @@ function pairKey(a: number, b: number) {
   return a < b ? `${a}:${b}` : `${b}:${a}`;
 }
 
+function minOf(values: number[]): number | null {
+  if (values.length === 0) return null;
+  let min = values[0]!;
+  for (const value of values) {
+    if (value < min) min = value;
+  }
+  return min;
+}
+
+function maxOf(values: number[]): number | null {
+  if (values.length === 0) return null;
+  let max = values[0]!;
+  for (const value of values) {
+    if (value > max) max = value;
+  }
+  return max;
+}
+
 function dominanceTowardA(rec: PairRecord): number {
   const decided = rec.aWins + rec.bWins;
   if (decided === 0) return 0.5;
@@ -265,8 +283,7 @@ export function buildRivalriesBoard(
   const namedPairs = [...pairsMap.values()]
     .map((rec) => toNamed(rec, managerMap))
     .filter((p): p is NamedRivalry => p != null)
-    .filter((p) => p.record.games >= 2)
-    .sort((a, b) => b.record.games - a.record.games);
+    .sort((a, b) => b.record.games - a.record.games || b.record.aWins + b.record.bWins - (a.record.aWins + a.record.bWins));
 
   const n = managers.length;
   const heatmap: Array<Array<number | null>> = Array.from({ length: n }, () =>
@@ -301,18 +318,23 @@ export function buildRivalriesBoard(
       }
       const { wins, losses } = winsFor(pair.record, manager.entryId);
       const decided = wins + losses;
-      if (decided < 2) continue;
+      if (decided < 1) continue;
 
-      const lossScore = losses * 2 + losses / decided;
-      if (lossScore > nemesisScore) {
-        nemesisScore = lossScore;
-        nemesis = pair;
+      // Nemesis = the manager you lose to most. Lucky charm = who you beat most.
+      if (losses > wins) {
+        const lossScore = losses * 2 + losses / decided;
+        if (lossScore > nemesisScore) {
+          nemesisScore = lossScore;
+          nemesis = pair;
+        }
       }
 
-      const winScore = wins * 2 + wins / decided;
-      if (winScore > charmScore) {
-        charmScore = winScore;
-        charm = pair;
+      if (wins > losses) {
+        const winScore = wins * 2 + wins / decided;
+        if (winScore > charmScore) {
+          charmScore = winScore;
+          charm = pair;
+        }
       }
     }
 
@@ -351,32 +373,30 @@ export function buildRivalriesBoard(
   for (const pair of namedPairs) {
     const tl = pair.record.timeline;
     if (tl.length < 4) continue;
-    let worstForA = 0;
-    let worstForB = 0;
     let bestSwing = 0;
     let hero = "a" as "a" | "b";
 
-    for (const point of tl) {
-      worstForA = Math.min(worstForA, point.rankEdge);
-      worstForB = Math.min(worstForB, -point.rankEdge);
-    }
     // After being deep behind, did they finish ahead in a later week?
     for (let i = 0; i < tl.length; i++) {
       const early = tl.slice(0, i + 1);
-      const minEdge = Math.min(...early.map((p) => p.rankEdge));
       const later = tl.slice(i);
-      const maxLater = Math.max(...later.map((p) => p.rankEdge));
-      const swingA = maxLater - minEdge;
-      if (minEdge < -1 && maxLater > 0 && swingA > bestSwing) {
-        bestSwing = swingA;
-        hero = "a";
+      const minEdge = minOf(early.map((p) => p.rankEdge));
+      const maxLater = maxOf(later.map((p) => p.rankEdge));
+      if (minEdge != null && maxLater != null) {
+        const swingA = maxLater - minEdge;
+        if (minEdge < -1 && maxLater > 0 && swingA > bestSwing) {
+          bestSwing = swingA;
+          hero = "a";
+        }
       }
-      const minEdgeB = Math.min(...early.map((p) => -p.rankEdge));
-      const maxLaterB = Math.max(...later.map((p) => -p.rankEdge));
-      const swingB = maxLaterB - minEdgeB;
-      if (minEdgeB < -1 && maxLaterB > 0 && swingB > bestSwing) {
-        bestSwing = swingB;
-        hero = "b";
+      const minEdgeB = minOf(early.map((p) => -p.rankEdge));
+      const maxLaterB = maxOf(later.map((p) => -p.rankEdge));
+      if (minEdgeB != null && maxLaterB != null) {
+        const swingB = maxLaterB - minEdgeB;
+        if (minEdgeB < -1 && maxLaterB > 0 && swingB > bestSwing) {
+          bestSwing = swingB;
+          hero = "b";
+        }
       }
     }
 

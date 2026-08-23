@@ -14,6 +14,10 @@ import type {
   UpcomingFixtureView,
   UpcomingGameweekFixtures,
 } from "@/lib/fpl";
+import {
+  formatKickoffLocal,
+  formatTimezoneLabel,
+} from "@/lib/league/fixtures-time";
 import { cn } from "@/lib/utils";
 
 type FixturesResponse =
@@ -31,31 +35,7 @@ function useLocalTimezone(): string {
 }
 
 function formatKickoff(iso: string | null, timeZone: string): string {
-  if (!iso) return "TBD";
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return "TBD";
-
-  return new Intl.DateTimeFormat(undefined, {
-    timeZone,
-    weekday: "short",
-    day: "numeric",
-    month: "short",
-    hour: "numeric",
-    minute: "2-digit",
-  }).format(date);
-}
-
-function formatTimezoneLabel(timeZone: string): string {
-  try {
-    const parts = new Intl.DateTimeFormat(undefined, {
-      timeZone,
-      timeZoneName: "short",
-    }).formatToParts(new Date());
-    const name = parts.find((part) => part.type === "timeZoneName")?.value;
-    return name ? `${timeZone.replace(/_/g, " ")} · ${name}` : timeZone;
-  } catch {
-    return timeZone;
-  }
+  return formatKickoffLocal(iso, timeZone);
 }
 
 /** Fixtures for the League hub “Fixtures” tab — grouped tables. */
@@ -115,7 +95,7 @@ export function UpcomingFixtures({
             Fixtures
           </CardTitle>
           <CardDescription>
-            Current and next gameweek · kick-off in your local time
+            Current and next gameweek · kick-offs in your local timezone
           </CardDescription>
         </div>
         <p className="inline-flex items-center gap-1.5 text-[11px] text-muted-foreground">
@@ -274,15 +254,24 @@ function TeamCell({
 }) {
   return (
     <div className="flex min-w-0 items-center gap-2">
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img
-        src={team.badgeUrl}
-        alt=""
-        width={24}
-        height={24}
-        className="size-6 shrink-0 object-contain sm:size-7"
-        loading="lazy"
-      />
+      {team.badgeUrl ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={team.badgeUrl}
+          alt=""
+          width={24}
+          height={24}
+          className="size-6 shrink-0 object-contain sm:size-7"
+          loading="lazy"
+          onError={(event) => {
+            event.currentTarget.style.visibility = "hidden";
+          }}
+        />
+      ) : (
+        <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-muted text-[9px] font-semibold text-muted-foreground sm:size-7">
+          {team.shortName.slice(0, 3)}
+        </span>
+      )}
       <div className="min-w-0">
         <p className="truncate font-medium">
           <span className="sm:hidden">{team.shortName}</span>

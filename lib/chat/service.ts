@@ -6,6 +6,7 @@ import { ACTIVITY_ACTIONS } from "@/lib/activity/types";
 import { getAuthStatus } from "@/lib/auth/session";
 import {
   ensureChatGameweekRollover,
+  peekChatGameweek,
   purgeStaleActiveMessages,
   recountReactions,
 } from "@/lib/chat/rollover";
@@ -39,50 +40,42 @@ async function loadReactionsForMessages(
   messageIds: number[],
   viewerId: number | null,
 ): Promise<Map<number, ChatReactionSummary[]>> {
-  const map = new Map<number, ChatReactionSummary[]>();
-  if (messageIds.length === 0) return map;
+  if (messageIds.length === 0) return new Map();
 
   const db = getDb();
+  const reactedExpr =
+    viewerId != null
+      ? sql<boolean>`bool_or(${chatReactions.managerId} = ${viewerId})`
+      : sql<boolean>`false`;
   const rows = await db
     .select({
       messageId: chatReactions.messageId,
       emoji: chatReactions.emoji,
-      managerId: chatReactions.managerId,
+      count: sql<number>`count(*)::int`,
+      reactedByMe: reactedExpr,
     })
     .from(chatReactions)
-    .where(inArray(chatReactions.messageId, messageIds));
+    .where(inArray(chatReactions.messageId, messageIds))
+    .groupBy(chatReactions.messageId, chatReactions.emoji);
 
-  const grouped = new Map<
-    number,
-    Map<string, { count: number; reactedByMe: boolean }>
-  >();
-
+  const grouped = new Map<number, ChatReactionSummary[]>();
   for (const row of rows) {
-    let byEmoji = grouped.get(row.messageId);
-    if (!byEmoji) {
-      byEmoji = new Map();
-      grouped.set(row.messageId, byEmoji);
-    }
-    const cur = byEmoji.get(row.emoji) ?? { count: 0, reactedByMe: false };
-    cur.count += 1;
-    if (viewerId != null && row.managerId === viewerId) {
-      cur.reactedByMe = true;
-    }
-    byEmoji.set(row.emoji, cur);
+    if (!isAllowedEmoji(row.emoji)) continue;
+    const list = grouped.get(row.messageId) ?? [];
+    list.push({
+      emoji: row.emoji,
+      count: Number(row.count) || 0,
+      reactedByMe: Boolean(row.reactedByMe),
+    });
+    grouped.set(row.messageId, list);
   }
 
-  for (const [messageId, byEmoji] of grouped) {
-    const summaries: ChatReactionSummary[] = [...byEmoji.entries()]
-      .map(([emoji, data]) => ({
-        emoji,
-        count: data.count,
-        reactedByMe: data.reactedByMe,
-      }))
-      .sort((a, b) => b.count - a.count || a.emoji.localeCompare(b.emoji));
-    map.set(messageId, summaries);
+  for (const [messageId, summaries] of grouped) {
+    summaries.sort((a, b) => b.count - a.count || a.emoji.localeCompare(b.emoji));
+    grouped.set(messageId, summaries);
   }
 
-  return map;
+  return grouped;
 }
 
 async function hydrateMessages(
@@ -190,9 +183,21 @@ export async function listActiveChatMessages(options?: {
   limit?: number;
   afterId?: number;
   viewerId?: number | null;
+  skipMaintenance?: boolean;
 }): Promise<{ messages: ChatMessageView[]; gameweek: number }> {
-  const gameweek = await ensureChatGameweekRollover();
-  await purgeStaleActiveMessages(gameweek);
+  const skipMaintenance = Boolean(options?.skipMaintenance);
+  let gameweek = 1;
+  try {
+    gameweek = skipMaintenance
+      ? await peekChatGameweek()
+      : await ensureChatGameweekRollover();
+    if (!skipMaintenance) {
+      await purgeStaleActiveMessages(gameweek);
+    }
+  } catch (error) {
+    console.error("[chat] list maintenance skipped", error);
+    gameweek = await peekChatGameweek().catch(() => 1);
+  }
 
   const limit = Math.min(Math.max(options?.limit ?? 100, 1), 200);
   const afterId = options?.afterId;
@@ -275,6 +280,11 @@ export async function sendChatMessage(input: {
     throw new Error(`Message must be 1–${CHAT_BODY_MAX} characters.`);
   }
 
+  const replyToId =
+    Number.isInteger(input.replyToId) && (input.replyToId as number) > 0
+      ? input.replyToId
+      : null;
+
   await requireActingLeagueManager(input.managerId);
 
   const limited = checkRateLimit(
@@ -291,7 +301,7 @@ export async function sendChatMessage(input: {
   const gameweek = await ensureChatGameweekRollover();
   const db = getDb();
 
-  if (input.replyToId) {
+  if (replyToId) {
     const [parent] = await db
       .select({
         id: chatMessages.id,
@@ -300,7 +310,7 @@ export async function sendChatMessage(input: {
         isHallOfFame: chatMessages.isHallOfFame,
       })
       .from(chatMessages)
-      .where(eq(chatMessages.id, input.replyToId))
+      .where(eq(chatMessages.id, replyToId))
       .limit(1);
     if (
       !parent ||
@@ -317,67 +327,79 @@ export async function sendChatMessage(input: {
     .values({
       managerId: input.managerId,
       body,
-      replyToId: input.replyToId ?? null,
+      replyToId,
       gameweek,
     })
     .returning({ id: chatMessages.id });
 
-  await awardActivityPoints({
-    managerId: input.managerId,
-    delta: CHAT_POST_ACTIVITY,
-    reason: input.replyToId
-      ? `Replied in the Dressing Room (#${inserted!.id})`
-      : `Posted in the Dressing Room (#${inserted!.id})`,
-    actionKey: ACTIVITY_ACTIONS.WALL_POST,
-  });
-
-  const view = await getChatMessageById(inserted!.id, input.managerId);
-  if (!view) throw new Error("Couldn't load sent message.");
-
-  const {
-    createNotification,
-    listManagersForMentions,
-    resolveMentionedManagerIds,
-    NOTIFICATION_TYPES,
-  } = await import("@/lib/notifications");
-
-  if (input.replyToId) {
-    const [parent] = await db
-      .select({
-        managerId: chatMessages.managerId,
-      })
-      .from(chatMessages)
-      .where(eq(chatMessages.id, input.replyToId))
-      .limit(1);
-    if (parent && parent.managerId !== input.managerId) {
-      await createNotification({
-        recipientManagerId: parent.managerId,
-        actorManagerId: input.managerId,
-        type: NOTIFICATION_TYPES.CHAT_REPLY,
-        title: "New reply in Dressing Room",
-        body: body.slice(0, 120),
-        href: "/dressing-room",
-        meta: { messageId: inserted!.id, replyToId: input.replyToId },
-      });
-    }
+  if (!inserted?.id) {
+    throw new Error("Couldn't send message.");
   }
 
-  const roster = await listManagersForMentions();
-  const mentioned = resolveMentionedManagerIds(
-    body,
-    roster,
-    input.managerId,
-  );
-  for (const recipientManagerId of mentioned) {
-    await createNotification({
-      recipientManagerId,
-      actorManagerId: input.managerId,
-      type: NOTIFICATION_TYPES.CHAT_MENTION,
-      title: "You were mentioned",
-      body: body.slice(0, 120),
-      href: "/dressing-room",
-      meta: { messageId: inserted!.id },
+  try {
+    await awardActivityPoints({
+      managerId: input.managerId,
+      delta: CHAT_POST_ACTIVITY,
+      reason: replyToId
+        ? `Replied in the Dressing Room (#${inserted.id})`
+        : `Posted in the Dressing Room (#${inserted.id})`,
+      actionKey: ACTIVITY_ACTIONS.WALL_POST,
     });
+  } catch (error) {
+    console.error("[chat] activity points skipped", error);
+  }
+
+  const view = await getChatMessageById(inserted.id, input.managerId);
+  if (!view) throw new Error("Couldn't load sent message.");
+
+  try {
+    const {
+      createNotification,
+      listManagersForMentions,
+      resolveMentionedManagerIds,
+      NOTIFICATION_TYPES,
+    } = await import("@/lib/notifications");
+
+    if (replyToId) {
+      const [parent] = await db
+        .select({
+          managerId: chatMessages.managerId,
+        })
+        .from(chatMessages)
+        .where(eq(chatMessages.id, replyToId))
+        .limit(1);
+      if (parent && parent.managerId !== input.managerId) {
+        await createNotification({
+          recipientManagerId: parent.managerId,
+          actorManagerId: input.managerId,
+          type: NOTIFICATION_TYPES.CHAT_REPLY,
+          title: "New reply in Dressing Room",
+          body: body.slice(0, 120),
+          href: "/dressing-room",
+          meta: { messageId: inserted.id, replyToId },
+        });
+      }
+    }
+
+    const roster = await listManagersForMentions();
+    const mentioned = resolveMentionedManagerIds(
+      body,
+      roster,
+      input.managerId,
+    );
+    for (const recipientManagerId of mentioned) {
+      await createNotification({
+        recipientManagerId,
+        actorManagerId: input.managerId,
+        type: NOTIFICATION_TYPES.CHAT_MENTION,
+        title: "You were mentioned",
+        body: body.slice(0, 120),
+        href: "/dressing-room",
+        meta: { messageId: inserted.id },
+      });
+    }
+  } catch (error) {
+    console.error("[chat] notifications skipped", error);
   }
 
   return view;
@@ -423,11 +445,15 @@ export async function toggleChatReaction(input: {
   if (existing) {
     await db.delete(chatReactions).where(eq(chatReactions.id, existing.id));
   } else {
-    await db.insert(chatReactions).values({
-      messageId: input.messageId,
-      managerId: input.managerId,
-      emoji: input.emoji,
-    });
+    try {
+      await db.insert(chatReactions).values({
+        messageId: input.messageId,
+        managerId: input.managerId,
+        emoji: input.emoji,
+      });
+    } catch (error) {
+      console.error("[chat] reaction insert skipped", error);
+    }
   }
 
   await recountReactions(input.messageId);

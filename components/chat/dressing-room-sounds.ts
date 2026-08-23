@@ -5,15 +5,19 @@ const MUTE_KEY = "batch16_dressing_room_mute";
 let audioCtx: AudioContext | null = null;
 
 function ctx() {
-  if (typeof window === "undefined") return null;
-  if (!audioCtx) {
-    const AC =
-      window.AudioContext ||
-      (window as unknown as { webkitAudioContext: typeof AudioContext })
-        .webkitAudioContext;
-    audioCtx = new AC();
+  try {
+    if (typeof window === "undefined") return null;
+    if (!audioCtx) {
+      const AC =
+        window.AudioContext ||
+        (window as unknown as { webkitAudioContext: typeof AudioContext })
+          .webkitAudioContext;
+      audioCtx = new AC();
+    }
+    return audioCtx;
+  } catch {
+    return null;
   }
-  return audioCtx;
 }
 
 export function readDressingMute(): boolean {
@@ -78,7 +82,8 @@ export function playTauntSound(
   muted: boolean,
 ) {
   if (muted || typeof window === "undefined") return;
-  void ctx()?.resume();
+  try {
+    void ctx()?.resume();
 
   switch (action) {
     case "slap":
@@ -116,5 +121,8 @@ export function playTauntSound(
       break;
     default:
       blip(300, 0.08, "sine", 0.06);
+  }
+  } catch {
+    /* AudioContext can fail in locked browsers. */
   }
 }

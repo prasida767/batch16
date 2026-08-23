@@ -99,12 +99,14 @@ export function ChallengesBoard({
     action: (formData: FormData) => Promise<ActionResult>,
     formData: FormData,
     kind: ActionKind = null,
-    _challenge?: ChallengeView | null,
+    onSuccess?: () => void,
   ) {
     startTransition(async () => {
-      const result = await action(formData);
-      setFlash(result);
-      if (result.ok) {
+      try {
+        const result = await action(formData);
+        setFlash(result);
+        if (!result.ok) return;
+        onSuccess?.();
         if (kind === "accept") {
           playBaajiSound("kickoff", muted);
           setCelebration({
@@ -121,6 +123,11 @@ export function ChallengesBoard({
           });
         }
         router.refresh();
+      } catch {
+        setFlash({
+          ok: false,
+          message: "Couldn't update baaji. Try again.",
+        });
       }
     });
   }
@@ -206,7 +213,9 @@ export function ChallengesBoard({
           managers={managers}
           currentGameweek={currentGameweek}
           pending={pending}
-          onCreate={(fd) => run(createChallengeAction, fd, "create")}
+          onCreate={(fd, reset) =>
+            run(createChallengeAction, fd, "create", reset)
+          }
         />
       </FadeIn>
 
@@ -347,7 +356,7 @@ function CreateMatchTicket({
   managers: ManagerOption[];
   currentGameweek: number | null;
   pending: boolean;
-  onCreate: (fd: FormData) => void;
+  onCreate: (fd: FormData, reset: () => void) => void;
 }) {
   const reduce = useReducedMotion();
   const [opponentId, setOpponentId] = useState<number | null>(null);
@@ -398,9 +407,11 @@ function CreateMatchTicket({
           onSubmit={(event) => {
             event.preventDefault();
             if (!opponentId) return;
-            onCreate(new FormData(event.currentTarget));
-            event.currentTarget.reset();
-            setOpponentId(null);
+            const form = event.currentTarget;
+            onCreate(new FormData(form), () => {
+              form.reset();
+              setOpponentId(null);
+            });
           }}
         >
           <input type="hidden" name="opponentId" value={opponentId ?? ""} />
@@ -655,7 +666,6 @@ function MatchSection({
     action: (formData: FormData) => Promise<ActionResult>,
     formData: FormData,
     kind?: ActionKind,
-    challenge?: ChallengeView | null,
   ) => void;
 }) {
   return (
@@ -713,7 +723,6 @@ function MatchCard({
     action: (formData: FormData) => Promise<ActionResult>,
     formData: FormData,
     kind?: ActionKind,
-    challenge?: ChallengeView | null,
   ) => void;
 }) {
   const reduce = useReducedMotion();
@@ -772,7 +781,7 @@ function MatchCard({
                     event.preventDefault();
                     const fd = new FormData(event.currentTarget);
                     fd.set("decision", "accept");
-                    onAction(respondChallengeAction, fd, "accept", challenge);
+                    onAction(respondChallengeAction, fd, "accept");
                   }}
                 >
                   <input type="hidden" name="challengeId" value={challenge.id} />
@@ -796,7 +805,7 @@ function MatchCard({
                     event.preventDefault();
                     const fd = new FormData(event.currentTarget);
                     fd.set("decision", "decline");
-                    onAction(respondChallengeAction, fd, "decline", challenge);
+                    onAction(respondChallengeAction, fd, "decline");
                   }}
                 >
                   <input type="hidden" name="challengeId" value={challenge.id} />
@@ -823,7 +832,6 @@ function MatchCard({
                     cancelChallengeAction,
                     new FormData(event.currentTarget),
                     "cancel",
-                    challenge,
                   );
                 }}
               >

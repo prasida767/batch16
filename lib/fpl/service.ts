@@ -324,21 +324,31 @@ export async function getUpcomingFixtures(): Promise<UpcomingGameweekFixtures[]>
       const raw = await getFixturesForEvent(event.id);
       const fixtures = raw
         .map((fixture) => {
-          const home = teams.get(fixture.team_h);
-          const away = teams.get(fixture.team_a);
-          if (!home || !away) return null;
+          const home = teams.get(fixture.team_h) ?? {
+            id: fixture.team_h,
+            name: `Team ${fixture.team_h}`,
+            shortName: "TBD",
+            code: 0,
+            badgeUrl: "",
+          };
+          const away = teams.get(fixture.team_a) ?? {
+            id: fixture.team_a,
+            name: `Team ${fixture.team_a}`,
+            shortName: "TBD",
+            code: 0,
+            badgeUrl: "",
+          };
           return {
             id: fixture.id,
             kickoffTime: fixture.kickoff_time,
-            started: fixture.started,
-            finished: fixture.finished || fixture.finished_provisional,
+            started: Boolean(fixture.started),
+            finished: Boolean(fixture.finished || fixture.finished_provisional),
             homeScore: fixture.team_h_score,
             awayScore: fixture.team_a_score,
             home,
             away,
           } satisfies UpcomingFixtureView;
         })
-        .filter((row): row is UpcomingFixtureView => row != null)
         .sort((a, b) => {
           if (!a.kickoffTime && !b.kickoffTime) return a.id - b.id;
           if (!a.kickoffTime) return 1;

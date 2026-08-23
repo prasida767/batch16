@@ -1,27 +1,18 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import { isAdminEmail } from "@/lib/auth/admin";
+import { isPublicPath, loginPath, safeNextPath } from "@/lib/auth/paths";
 import { getSupabaseAnonKey, getSupabaseUrl } from "@/lib/supabase/config";
-
-const PUBLIC_PREFIXES = ["/auth", "/guide"];
-
-function isPublicPath(pathname: string): boolean {
-  if (pathname === "/") return true;
-  return PUBLIC_PREFIXES.some(
-    (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
-  );
-}
 
 function unauthorized(request: NextRequest, pathname: string) {
   if (pathname.startsWith("/api/")) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   const redirectUrl = request.nextUrl.clone();
-  redirectUrl.pathname = "/";
-  redirectUrl.searchParams.set(
-    "next",
-    `${pathname}${request.nextUrl.search || ""}`,
-  );
+  const dest = loginPath(safeNextPath(`${pathname}${request.nextUrl.search || ""}`));
+  const parsed = new URL(dest, request.nextUrl.origin);
+  redirectUrl.pathname = parsed.pathname;
+  redirectUrl.search = parsed.search;
   return NextResponse.redirect(redirectUrl);
 }
 
@@ -72,8 +63,10 @@ export async function updateSession(request: NextRequest) {
 
   if (user && pathname === "/") {
     const redirectUrl = request.nextUrl.clone();
-    redirectUrl.pathname = "/league";
+    redirectUrl.pathname = "/auth/continue";
     redirectUrl.search = "";
+    const next = safeNextPath(request.nextUrl.searchParams.get("next"));
+    if (next) redirectUrl.searchParams.set("next", next);
     return NextResponse.redirect(redirectUrl);
   }
 

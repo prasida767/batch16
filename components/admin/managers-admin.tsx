@@ -143,13 +143,13 @@ export function ManagersAdmin({
           <CardTitle>League managers</CardTitle>
           <CardDescription>
             {managers.length} synced from FPL ·{" "}
-            {managers.filter((m) => m.verified).length}/{managers.length} verified
-            (claimed) ·{" "}
-            {managers.filter((m) => m.entryFeePaid).length}/{managers.length}{" "}
-            entry fees paid. Synced managers stay Unverified until they register
-            and claim. Use{" "}
-            <span className="font-medium text-foreground">Flag as paid</span>{" "}
-            when payment lands — everyone sees it on the League table.
+            {managers.filter((m) => m.verified).length}/{managers.length}{" "}
+            verified and in the pot
+            {managers.length > 0
+              ? ` (${managers.filter((m) => m.verified).length} × entry fee)`
+              : ""}
+            . Unverified seats wait to join — their fee is not allocated until
+            they claim. Flag entry fees paid only after a manager is verified.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
@@ -161,7 +161,10 @@ export function ManagersAdmin({
             managers.map((manager) => (
               <div
                 key={manager.id}
-                className="flex flex-col gap-3 rounded-xl border border-border/70 p-3 sm:flex-row sm:items-center"
+                className={cn(
+                  "flex flex-col gap-3 rounded-xl border border-border/70 p-3 sm:flex-row sm:items-center",
+                  !manager.verified && "bg-muted/30",
+                )}
               >
                 <form
                   className="grid flex-1 gap-2 sm:grid-cols-[1fr_auto]"
@@ -179,7 +182,7 @@ export function ManagersAdmin({
                     />
                     <p className="truncate text-xs text-muted-foreground">
                       Entry {manager.fplEntryId}
-                      {manager.currentBalance != null ? (
+                      {manager.verified && manager.currentBalance != null ? (
                         <>
                           {" · "}
                           <AnimatedMoney
@@ -196,7 +199,13 @@ export function ManagersAdmin({
                         verified={manager.verified}
                         size="sm"
                       />
-                      <EntryFeeBadge paid={manager.entryFeePaid} size="sm" />
+                      {manager.verified ? (
+                        <EntryFeeBadge paid={manager.entryFeePaid} size="sm" />
+                      ) : (
+                        <span className="text-[11px] text-muted-foreground">
+                          Waiting to join — not in the pot
+                        </span>
+                      )}
                     </div>
                   </div>
                   <div className="flex flex-wrap gap-2">
@@ -206,7 +215,12 @@ export function ManagersAdmin({
                     <Button
                       type="button"
                       variant={manager.entryFeePaid ? "outline" : "default"}
-                      disabled={pending}
+                      disabled={pending || !manager.verified}
+                      title={
+                        manager.verified
+                          ? undefined
+                          : "Wait until this manager claims their seat before allocating an entry fee."
+                      }
                       className={cn(
                         manager.entryFeePaid
                           ? "border-emerald-500/40 text-emerald-800 dark:text-emerald-300"

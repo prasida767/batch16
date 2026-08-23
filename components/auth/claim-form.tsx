@@ -52,9 +52,9 @@ export function ClaimForm({
       <CardHeader>
         <CardTitle>Verify your manager</CardTitle>
         <CardDescription>
-          Signed in as {email}. Confirm your league identity, then pick the
-          Premier League club you support — we&apos;ll build your animated
-          crest avatar from that.
+          Signed in as {email}. Enter your FPL team name, the name from the
+          standings, or both — spelling doesn&apos;t have to be exact. Then pick
+          the Premier League club you support for your crest avatar.
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -66,16 +66,16 @@ export function ClaimForm({
           <input type="hidden" name="avatarVariant" value={avatarVariant} />
 
           <div className="space-y-2">
-            <Label htmlFor="fullName">Your name</Label>
+            <Label htmlFor="fullName">Manager name</Label>
             <Input
               id="fullName"
               name="fullName"
-              required
               placeholder="e.g. Prasiddha Khadka"
               autoComplete="name"
             />
             <p className="text-xs text-muted-foreground">
-              Same spelling as in the league standings.
+              The name shown in the league standings. Extra spaces and small
+              spelling differences are fine.
             </p>
           </div>
           <div className="space-y-2">
@@ -83,13 +83,23 @@ export function ClaimForm({
             <Input
               id="teamName"
               name="teamName"
-              required
               placeholder="Your team name on FPL"
               autoComplete="off"
             />
             <p className="text-xs text-muted-foreground">
-              The fantasy team name in the league — not your club or email.
+              The fantasy team name in this league — not your club or email.
+              You can enter name, team, or both.
             </p>
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="entryId">FPL entry ID (optional)</Label>
+            <Input
+              id="entryId"
+              name="entryId"
+              placeholder="From fantasy.premierleague.com/entry/XXXXXX/"
+              autoComplete="off"
+              inputMode="numeric"
+            />
           </div>
 
           <div className="space-y-2">

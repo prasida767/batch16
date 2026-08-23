@@ -17,11 +17,13 @@ const DressingRoomContext = createContext<DressingRoomApi | null>(null);
 export function DressingRoomProvider({
   me,
   children,
+  enabled = true,
 }: {
   me: ChatPresencePayload | null;
   children: ReactNode;
+  enabled?: boolean;
 }) {
-  const api = useDressingRoom(me);
+  const api = useDressingRoom(me, { enabled });
   return (
     <DressingRoomContext.Provider value={api}>
       {children}

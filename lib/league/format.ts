@@ -19,7 +19,9 @@ export function initials(name: string): string {
 }
 
 export function rankDelta(rank: number, lastRank: number): number {
-  if (!lastRank) return 0;
+  if (!Number.isFinite(rank) || !Number.isFinite(lastRank) || lastRank === 0) {
+    return 0;
+  }
   return lastRank - rank;
 }
 

@@ -10,46 +10,51 @@ import { getBootstrapStatic } from "@/lib/fpl";
 import { mergeClubsFromBootstrap } from "@/lib/avatars/clubs";
 
 export async function getProfilePageData() {
-  if (!isDatabaseConfigured()) {
+  try {
+    if (!isDatabaseConfigured()) {
+      return { kind: "no_db" as const };
+    }
+
+    const verified = await getVerifiedManager();
+    if (!verified) {
+      return { kind: "unverified" as const };
+    }
+
+    const db = getDb();
+    const [row] = await db
+      .select({
+        id: managers.id,
+        displayName: managers.displayName,
+        supportedTeamId: managers.supportedTeamId,
+        avatarVariant: managers.avatarVariant,
+        fplEntryId: managers.fplEntryId,
+      })
+      .from(managers)
+      .where(eq(managers.id, verified.managerId))
+      .limit(1);
+
+    if (!row) {
+      return { kind: "unverified" as const };
+    }
+
+    let clubs = mergeClubsFromBootstrap([]);
+    try {
+      const bootstrap = await getBootstrapStatic();
+      clubs = mergeClubsFromBootstrap(bootstrap.teams);
+    } catch {
+      // static fallback
+    }
+
+    return {
+      kind: "ok" as const,
+      email: verified.email,
+      manager: row,
+      clubs,
+    };
+  } catch (error) {
+    console.error("[profile] load failed", error);
     return { kind: "no_db" as const };
   }
-
-  const verified = await getVerifiedManager();
-  if (!verified) {
-    return { kind: "unverified" as const };
-  }
-
-  const db = getDb();
-  const [row] = await db
-    .select({
-      id: managers.id,
-      displayName: managers.displayName,
-      supportedTeamId: managers.supportedTeamId,
-      avatarVariant: managers.avatarVariant,
-      fplEntryId: managers.fplEntryId,
-    })
-    .from(managers)
-    .where(eq(managers.id, verified.managerId))
-    .limit(1);
-
-  if (!row) {
-    return { kind: "unverified" as const };
-  }
-
-  let clubs = mergeClubsFromBootstrap([]);
-  try {
-    const bootstrap = await getBootstrapStatic();
-    clubs = mergeClubsFromBootstrap(bootstrap.teams);
-  } catch {
-    // static fallback
-  }
-
-  return {
-    kind: "ok" as const,
-    email: verified.email,
-    manager: row,
-    clubs,
-  };
 }
 
 export async function updateAvatarAction(

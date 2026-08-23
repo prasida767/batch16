@@ -10,7 +10,7 @@ import {
   type ReactNode,
 } from "react";
 import { motion, useReducedMotion } from "framer-motion";
-import { Flame, TrendingDown, TrendingUp, Zap } from "lucide-react";
+import { Clock, Flame, TrendingDown, TrendingUp, Zap } from "lucide-react";
 import {
   VerticalPitchRank,
   type PitchRankMode,
@@ -30,83 +30,59 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { rankDelta } from "@/lib/league/format";
+import { formatKickoffLocal } from "@/lib/league/fixtures-time";
+import {
+  rankByLiveProjection,
+  rankByOfficial,
+  type LiveRaceRow,
+} from "@/lib/league/live";
 import type {
   LiveManagerScorer,
   LivePlayerScorer,
-  LiveStandingUpdate,
   LiveStandingsPayload,
 } from "@/lib/league/types";
 import { cn } from "@/lib/utils";
 
 const POLL_MS = 60_000;
+const IDLE_POLL_MS = 5 * 60_000;
 
-type RaceRow = LiveStandingUpdate & {
-  displayRank: number;
-  displayGw: number;
-  displayTotal: number;
+type RaceRow = LiveRaceRow & {
+  lastRank: number;
   momentum: "rising" | "falling" | "steady";
 };
 
-function toRaceRows(standings: LiveStandingUpdate[]): RaceRow[] {
-  return [...standings]
-    .map((row) => {
-      const displayGw = row.livePoints ?? row.eventPoints;
-      const displayTotal =
-        row.livePoints != null
-          ? row.totalPoints - row.eventPoints + row.livePoints
-          : row.totalPoints;
-      return { ...row, displayGw, displayTotal };
-    })
-    .sort(
-      (a, b) =>
-        b.displayTotal - a.displayTotal ||
-        b.displayGw - a.displayGw ||
-        a.playerName.localeCompare(b.playerName),
-    )
-    .map((row, index) => {
-      const displayRank = index + 1;
-      const delta = rankDelta(displayRank, row.lastRank || row.rank);
-      return {
-        ...row,
-        displayRank,
-        momentum: delta > 0 ? "rising" : delta < 0 ? "falling" : "steady",
-      };
-    });
+function applyPrevRanks(
+  rows: LiveRaceRow[],
+  prevRanks: Map<number, number>,
+): RaceRow[] {
+  return rows.map((row) => {
+    const lastRank = prevRanks.get(row.entryId) ?? row.displayRank;
+    const delta = rankDelta(row.displayRank, lastRank);
+    return {
+      ...row,
+      lastRank,
+      momentum: delta > 0 ? "rising" : delta < 0 ? "falling" : "steady",
+    };
+  });
 }
 
-function toLivePitchRows(rows: RaceRow[]): VerticalPitchRow[] {
+function toPitchRows(rows: RaceRow[]): VerticalPitchRow[] {
   return rows.map((row) => ({
     entryId: row.entryId,
     name: row.playerName,
     teamName: row.teamName,
     rank: row.displayRank,
-    lastRank: row.lastRank || row.rank,
+    lastRank: row.lastRank,
     points: row.displayTotal,
     gwPoints: row.displayGw,
   }));
 }
 
-function toOverallPitchRows(
-  standings: LiveStandingUpdate[],
-): VerticalPitchRow[] {
-  return [...standings]
-    .sort(
-      (a, b) => a.rank - b.rank || a.playerName.localeCompare(b.playerName),
-    )
-    .map((row) => ({
-      entryId: row.entryId,
-      name: row.playerName,
-      teamName: row.teamName,
-      rank: row.rank,
-      lastRank: row.lastRank || row.rank,
-      points: row.totalPoints,
-      gwPoints: row.livePoints ?? row.eventPoints,
-    }));
-}
-
 function formatAgo(fetchedAt: string | null, now: number): string {
   if (!fetchedAt) return "";
-  const seconds = Math.max(0, Math.floor((now - Date.parse(fetchedAt)) / 1000));
+  const parsed = Date.parse(fetchedAt);
+  if (!Number.isFinite(parsed)) return "";
+  const seconds = Math.max(0, Math.floor((now - parsed) / 1000));
   if (seconds < 5) return "just now";
   if (seconds < 60) return `${seconds}s ago`;
   return `${Math.floor(seconds / 60)}m ago`;
@@ -136,6 +112,15 @@ function LivePulse({
   );
 }
 
+function nextKickoffLabel(iso: string | null): string {
+  if (!iso) return "TBD";
+  const timeZone =
+    typeof Intl !== "undefined"
+      ? Intl.DateTimeFormat().resolvedOptions().timeZone
+      : "UTC";
+  return formatKickoffLocal(iso, timeZone);
+}
+
 export function MatchCentre({
   initial,
   leagueName,
@@ -153,22 +138,61 @@ export function MatchCentre({
     initial.isLive || initial.isProvisional ? "live" : "overall",
   );
   const inFlight = useRef(false);
+  const wasActive = useRef(initial.isLive || initial.isProvisional);
+  const prevLiveRanks = useRef(new Map<number, number>());
+  const prevOverallRanks = useRef(new Map<number, number>());
   const reduce = useReducedMotion();
 
   const active = payload.isLive || payload.isProvisional;
-  const liveRows = useMemo(
-    () => toRaceRows(payload.standings),
+  const liveStatsReady =
+    payload.liveStatsReady ??
+    (Array.isArray(payload.standings) ? payload.standings : []).some(
+      (row) => row.livePoints != null,
+    );
+
+  const liveRace = useMemo(
+    () => rankByLiveProjection(Array.isArray(payload.standings) ? payload.standings : []),
     [payload.standings],
   );
-  const pitchRows = useMemo(
-    () =>
-      mode === "live"
-        ? toLivePitchRows(liveRows)
-        : toOverallPitchRows(payload.standings),
-    [mode, liveRows, payload.standings],
+  const overallRace = useMemo(
+    () => rankByOfficial(Array.isArray(payload.standings) ? payload.standings : []),
+    [payload.standings],
   );
-  const risers = liveRows.filter((r) => r.momentum === "rising").slice(0, 4);
-  const fallers = liveRows.filter((r) => r.momentum === "falling").slice(0, 4);
+
+  const liveRows = useMemo(
+    () => applyPrevRanks(liveRace, prevLiveRanks.current),
+    [liveRace],
+  );
+  const overallRows = useMemo(
+    () => applyPrevRanks(overallRace, prevOverallRanks.current),
+    [overallRace],
+  );
+
+  useEffect(() => {
+    for (const row of liveRace) {
+      prevLiveRanks.current.set(row.entryId, row.displayRank);
+    }
+  }, [liveRace]);
+
+  useEffect(() => {
+    for (const row of overallRace) {
+      prevOverallRanks.current.set(row.entryId, row.displayRank);
+    }
+  }, [overallRace]);
+
+  useEffect(() => {
+    if (active && !wasActive.current) setMode("live");
+    if (!active) setMode("overall");
+    wasActive.current = active;
+  }, [active]);
+
+  const pitchMode: PitchRankMode = active ? mode : "overall";
+  const raceRows = pitchMode === "live" ? liveRows : overallRows;
+  const pitchRows = useMemo(() => toPitchRows(raceRows), [raceRows]);
+  const risers = liveRows.filter((row) => row.momentum === "rising").slice(0, 4);
+  const fallers = liveRows
+    .filter((row) => row.momentum === "falling")
+    .slice(0, 4);
 
   const refresh = useCallback(async () => {
     if (inFlight.current) return;
@@ -183,18 +207,24 @@ export function MatchCentre({
     setRefreshing(true);
     try {
       const response = await fetch("/api/live", { cache: "no-store" });
-      const json = (await response.json()) as
+      const json = (await response.json().catch(() => null)) as
         | { kind: "ok"; data: LiveStandingsPayload }
         | { kind: "idle"; data: LiveStandingsPayload }
         | { kind: "error"; message: string }
-        | { kind: "no_league"; message: string };
+        | { kind: "no_league"; message: string }
+        | null;
 
-      if (json.kind === "ok" || json.kind === "idle") {
+      if (json && (json.kind === "ok" || json.kind === "idle")) {
         setError(null);
-        setPayload(json.data);
+        setPayload({
+          ...json.data,
+          standings: Array.isArray(json.data.standings)
+            ? json.data.standings
+            : [],
+        });
         setNow(Date.now());
       } else {
-        setError(json.message || "Couldn't refresh live scores.");
+        setError(json?.message || "Couldn't refresh live scores.");
       }
     } catch {
       setError("Couldn't refresh live scores.");
@@ -205,11 +235,9 @@ export function MatchCentre({
   }, []);
 
   useEffect(() => {
-    if (!active) return;
-
     const interval = window.setInterval(() => {
       void refresh();
-    }, POLL_MS);
+    }, active ? POLL_MS : IDLE_POLL_MS);
 
     const onVisible = () => {
       if (document.visibilityState === "visible") void refresh();
@@ -277,7 +305,7 @@ export function MatchCentre({
                   ? "Everyone on the vertical pitch — watch avatars climb and drop as live points tick every 60 seconds."
                   : payload.isProvisional
                     ? "Bonus is settling — ranks may still slide on the pitch until data is checked."
-                    : "Between gameweeks the pitch shows overall rank. Match day brings live movement and auto-refresh."}
+                    : "No live gameweek right now. The pitch shows overall rank until the next deadline."}
               </p>
             </div>
             <div className="space-y-1 text-right text-xs text-muted-foreground">
@@ -292,12 +320,54 @@ export function MatchCentre({
                   ) : null}
                 </>
               ) : (
-                <p>Polling pauses between gameweeks</p>
+                <p>Checks again every 5 minutes for kick-off</p>
               )}
             </div>
           </div>
         </div>
       </FadeIn>
+
+      {!active ? (
+        <FadeIn delay={0.02}>
+          <Card className="border-dashed">
+            <CardHeader className="pb-3">
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Clock className="size-4 text-muted-foreground" />
+                Between gameweeks
+              </CardTitle>
+              <CardDescription>
+                Live points, live ranking, and auto-refresh start when a
+                gameweek is in play.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="text-sm text-muted-foreground">
+              {payload.nextEventName ? (
+                <p>
+                  Next up:{" "}
+                  <span className="font-medium text-foreground">
+                    {payload.nextEventName}
+                  </span>
+                  {payload.nextDeadline ? (
+                    <> · deadline {nextKickoffLabel(payload.nextDeadline)}</>
+                  ) : null}
+                </p>
+              ) : (
+                <p>Waiting for the next FPL gameweek to be announced.</p>
+              )}
+            </CardContent>
+          </Card>
+        </FadeIn>
+      ) : null}
+
+      {active && !liveStatsReady ? (
+        <p
+          className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-900 dark:text-amber-200"
+          role="status"
+        >
+          Live points are delayed from FPL — showing official GW scores until
+          stats arrive. The pitch stays up.
+        </p>
+      ) : null}
 
       {error ? (
         <p className="text-sm text-destructive" role="status">
@@ -310,68 +380,76 @@ export function MatchCentre({
           <h2 className="font-[family-name:var(--font-display)] text-lg font-semibold tracking-tight">
             Vertical pitch
           </h2>
-          <div className="inline-flex rounded-lg bg-muted/70 p-0.5 ring-1 ring-border/60">
-            <Button
-              type="button"
-              size="sm"
-              variant="ghost"
-              className={cn(mode === "live" && "bg-card shadow-xs")}
-              onClick={() => setMode("live")}
-              aria-pressed={mode === "live"}
-            >
-              Live
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              variant="ghost"
-              className={cn(mode === "overall" && "bg-card shadow-xs")}
-              onClick={() => setMode("overall")}
-              aria-pressed={mode === "overall"}
-            >
-              Overall
-            </Button>
-          </div>
+          {active ? (
+            <div className="inline-flex rounded-lg bg-muted/70 p-0.5 ring-1 ring-border/60">
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                className={cn(mode === "live" && "bg-card shadow-xs")}
+                onClick={() => setMode("live")}
+                aria-pressed={mode === "live"}
+              >
+                Live
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                className={cn(mode === "overall" && "bg-card shadow-xs")}
+                onClick={() => setMode("overall")}
+                aria-pressed={mode === "overall"}
+              >
+                Overall
+              </Button>
+            </div>
+          ) : null}
         </div>
         <VerticalPitchRank
           rows={pitchRows}
-          mode={mode}
+          mode={pitchMode}
           highlightEntryId={highlightEntryId}
-          showMeters
-          label={mode === "live" ? "Live pitch race" : "Overall pitch rank"}
+          showMeters={active && pitchMode === "live"}
+          label={
+            pitchMode === "live" ? "Live pitch race" : "Overall pitch rank"
+          }
           caption={
-            mode === "live"
-              ? "Projected total places everyone from 1st (far goal) to last (own goal). Green climbs, red drops."
+            pitchMode === "live"
+              ? "Projected total places everyone from 1st (far goal) to last (own goal). Pins move as live points change."
               : "Official overall standings on the same pitch layout."
           }
         />
       </FadeIn>
 
-      <div className="grid gap-4 sm:grid-cols-2">
-        <MomentumCard
-          title="Rising"
-          icon={<TrendingUp className="size-4 text-emerald-500" />}
-          empty="No climbers yet"
-          rows={risers}
-          tone="up"
-        />
-        <MomentumCard
-          title="Falling"
-          icon={<TrendingDown className="size-4 text-red-500" />}
-          empty="No droppers yet"
-          rows={fallers}
-          tone="down"
-        />
-      </div>
+      {active ? (
+        <>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <MomentumCard
+              title="Rising"
+              icon={<TrendingUp className="size-4 text-emerald-500" />}
+              empty="No climbers yet — ranks move as live points tick"
+              rows={risers}
+              tone="up"
+            />
+            <MomentumCard
+              title="Falling"
+              icon={<TrendingDown className="size-4 text-red-500" />}
+              empty="No droppers yet — ranks move as live points tick"
+              rows={fallers}
+              tone="down"
+            />
+          </div>
 
-      <div className="grid gap-4 lg:grid-cols-2">
-        <TopScorersCard
-          title="Top GW scorers"
-          description="Managers with the most points this gameweek"
-          scorers={payload.topScorers}
-        />
-        <PlayerScorersCard scorers={payload.playerScorers} />
-      </div>
+          <div className="grid gap-4 lg:grid-cols-2">
+            <TopScorersCard
+              title="Top GW scorers"
+              description="Managers with the most points this gameweek"
+              scorers={payload.topScorers ?? []}
+            />
+            <PlayerScorersCard scorers={payload.playerScorers ?? []} />
+          </div>
+        </>
+      ) : null}
     </div>
   );
 }
@@ -406,9 +484,7 @@ function MomentumCard({
           <p className="text-sm text-muted-foreground">{empty}</p>
         ) : (
           rows.map((row, i) => {
-            const delta = Math.abs(
-              rankDelta(row.displayRank, row.lastRank || row.rank),
-            );
+            const delta = Math.abs(rankDelta(row.displayRank, row.lastRank));
             return (
               <motion.div
                 key={row.entryId}
@@ -533,7 +609,7 @@ function PlayerScorersCard({ scorers }: { scorers: LivePlayerScorer[] }) {
       <CardContent className="space-y-2">
         {scorers.length === 0 ? (
           <p className="text-sm text-muted-foreground">
-            Player scores appear once a gameweek is live or provisional.
+            Player scores appear once live stats arrive from FPL.
           </p>
         ) : (
           scorers.map((row, index) => (

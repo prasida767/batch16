@@ -22,7 +22,7 @@ import {
   managers,
 } from "@/lib/db";
 import { leagueRosterRows } from "@/lib/fpl";
-import { getLeagueSnapshot } from "@/lib/league/queries";
+import { getLeagueBoard, getLeagueSnapshot } from "@/lib/league/queries";
 import { buildWeeklyGameweeks } from "@/lib/league/weekly";
 import { requireActingLeagueManager } from "@/lib/challenges/identity";
 import { isDocumentaryWeekEligible } from "@/lib/documentary/eligibility";
@@ -285,19 +285,23 @@ export async function generateWeeklyDocumentaryEpisode(
   }
 
   if (isNew && opts.notify !== false) {
-    const {
-      createNotificationsForManagers,
-      listNotifiableManagerIds,
-      NOTIFICATION_TYPES,
-    } = await import("@/lib/notifications");
-    const ids = await listNotifiableManagerIds();
-    await createNotificationsForManagers(ids, {
-      type: NOTIFICATION_TYPES.DOCUMENTARY_EPISODE,
-      title: "New documentary episode",
-      body: `GW${gameweek}: ${narrative.title}`,
-      href: "/documentary",
-      meta: { episodeId: id, gameweek },
-    });
+    try {
+      const {
+        createNotificationsForManagers,
+        listNotifiableManagerIds,
+        NOTIFICATION_TYPES,
+      } = await import("@/lib/notifications");
+      const ids = await listNotifiableManagerIds();
+      await createNotificationsForManagers(ids, {
+        type: NOTIFICATION_TYPES.DOCUMENTARY_EPISODE,
+        title: "New documentary episode",
+        body: `GW${gameweek}: ${narrative.title}`,
+        href: "/documentary",
+        meta: { episodeId: id, gameweek },
+      });
+    } catch (error) {
+      console.error("[documentary] notify weekly failed", error);
+    }
   }
 
   return getDocumentaryEpisodeById(id);
@@ -407,19 +411,23 @@ export async function generateSeasonFinaleEpisode(
   }
 
   if (isNewFinale && opts.notify !== false) {
-    const {
-      createNotificationsForManagers,
-      listNotifiableManagerIds,
-      NOTIFICATION_TYPES,
-    } = await import("@/lib/notifications");
-    const ids = await listNotifiableManagerIds();
-    await createNotificationsForManagers(ids, {
-      type: NOTIFICATION_TYPES.DOCUMENTARY_EPISODE,
-      title: "Season finale is out",
-      body: title,
-      href: "/documentary",
-      meta: { episodeId: id, kind: "finale" },
-    });
+    try {
+      const {
+        createNotificationsForManagers,
+        listNotifiableManagerIds,
+        NOTIFICATION_TYPES,
+      } = await import("@/lib/notifications");
+      const ids = await listNotifiableManagerIds();
+      await createNotificationsForManagers(ids, {
+        type: NOTIFICATION_TYPES.DOCUMENTARY_EPISODE,
+        title: "Season finale is out",
+        body: title,
+        href: "/documentary",
+        meta: { episodeId: id, kind: "finale" },
+      });
+    } catch (error) {
+      console.error("[documentary] notify finale failed", error);
+    }
   }
 
   return getDocumentaryEpisodeById(id);
@@ -427,7 +435,8 @@ export async function generateSeasonFinaleEpisode(
 
 /**
  * Archive chat for closed GWs, then generate any missing documentary episodes.
- * Safe to call from page loads.
+ * Safe to call from page loads — never throws, and skips the heavy FPL history
+ * fetch when every finished week already has an episode.
  */
 export async function ensureDocumentaryEpisodes(): Promise<void> {
   try {
@@ -436,60 +445,87 @@ export async function ensureDocumentaryEpisodes(): Promise<void> {
     // Chat rollover is best-effort when FPL is down.
   }
 
-  const snapshot = await getLeagueSnapshot();
-  if (snapshot.kind !== "ok") return;
+  try {
+    const board = await getLeagueBoard();
+    if (board.kind !== "ok") return;
 
-  const weeks = buildWeeklyGameweeks(
-    leagueRosterRows(snapshot.data.standings),
-    snapshot.data.bootstrap,
-    snapshot.data.histories,
-    snapshot.data.db.weekly,
-  );
+    const db = getDb();
+    const existing = await db
+      .select({
+        kind: documentaryEpisodes.kind,
+        gameweek: documentaryEpisodes.gameweek,
+      })
+      .from(documentaryEpisodes);
 
-  const db = getDb();
-  const existing = await db
-    .select({
-      kind: documentaryEpisodes.kind,
-      gameweek: documentaryEpisodes.gameweek,
-    })
-    .from(documentaryEpisodes);
+    const weeklyDone = new Set(
+      existing
+        .filter((e) => e.kind === "weekly" && e.gameweek != null)
+        .map((e) => e.gameweek as number),
+    );
+    const hasFinale = existing.some((e) => e.kind === "finale");
+    const finishedEvents = board.data.bootstrap.events.filter(
+      (event) => event.finished && event.data_checked,
+    );
+    const seasonComplete = board.data.bootstrap.events.every(
+      (event) => event.finished,
+    );
+    const missingWeekly = finishedEvents.filter(
+      (event) => !weeklyDone.has(event.id),
+    );
 
-  const weeklyDone = new Set(
-    existing
-      .filter((e) => e.kind === "weekly" && e.gameweek != null)
-      .map((e) => e.gameweek as number),
-  );
-  const hasFinale = existing.some((e) => e.kind === "finale");
-
-  // Drop premature / empty-week episodes (e.g. preseason GW1 with 0 pts).
-  const weekByGw = new Map(weeks.map((w) => [w.gameweek, w]));
-  for (const ep of existing) {
-    if (ep.kind !== "weekly" || ep.gameweek == null) continue;
-    const week = weekByGw.get(ep.gameweek);
-    if (!week || !isDocumentaryWeekEligible(week)) {
-      await db
-        .delete(documentaryEpisodes)
-        .where(
-          and(
-            eq(documentaryEpisodes.kind, "weekly"),
-            eq(documentaryEpisodes.gameweek, ep.gameweek),
-          ),
-        );
-      weeklyDone.delete(ep.gameweek);
+    if (missingWeekly.length === 0 && (!seasonComplete || hasFinale)) {
+      return;
     }
-  }
 
-  for (const week of weeks) {
-    if (!isDocumentaryWeekEligible(week)) continue;
-    if (weeklyDone.has(week.gameweek)) continue;
-    await generateWeeklyDocumentaryEpisode(week.gameweek, { notify: false });
-  }
+    const snapshot = await getLeagueSnapshot();
+    if (snapshot.kind !== "ok") return;
 
-  const seasonComplete = snapshot.data.bootstrap.events.every(
-    (e) => e.finished,
-  );
-  if (seasonComplete && !hasFinale) {
-    await generateSeasonFinaleEpisode({ notify: false });
+    const weeks = buildWeeklyGameweeks(
+      leagueRosterRows(snapshot.data.standings),
+      snapshot.data.bootstrap,
+      snapshot.data.histories,
+      snapshot.data.db.weekly,
+    );
+
+    const weekByGw = new Map(weeks.map((w) => [w.gameweek, w]));
+    for (const ep of existing) {
+      if (ep.kind !== "weekly" || ep.gameweek == null) continue;
+      const week = weekByGw.get(ep.gameweek);
+      if (!week || !isDocumentaryWeekEligible(week)) {
+        await db
+          .delete(documentaryEpisodes)
+          .where(
+            and(
+              eq(documentaryEpisodes.kind, "weekly"),
+              eq(documentaryEpisodes.gameweek, ep.gameweek),
+            ),
+          );
+        weeklyDone.delete(ep.gameweek);
+      }
+    }
+
+    for (const week of weeks) {
+      if (!isDocumentaryWeekEligible(week)) continue;
+      if (weeklyDone.has(week.gameweek)) continue;
+      try {
+        await generateWeeklyDocumentaryEpisode(week.gameweek, { notify: false });
+      } catch (error) {
+        console.error(
+          `[documentary] GW${week.gameweek} generate failed`,
+          error,
+        );
+      }
+    }
+
+    if (seasonComplete && !hasFinale) {
+      try {
+        await generateSeasonFinaleEpisode({ notify: false });
+      } catch (error) {
+        console.error("[documentary] finale generate failed", error);
+      }
+    }
+  } catch (error) {
+    console.error("[documentary] ensure failed", error);
   }
 }
 
@@ -560,12 +596,16 @@ export async function rateDocumentaryEpisode(input: {
     .where(eq(documentaryEpisodes.id, input.episodeId));
 
   if (isFirstRating) {
-    await awardActivityPoints({
-      managerId: input.managerId,
-      delta: DOCUMENTARY_RATE_ACTIVITY,
-      reason: `Rated Documentary episode #${input.episodeId}`,
-      actionKey: ACTIVITY_ACTIONS.DOCUMENTARY_RATE,
-    });
+    try {
+      await awardActivityPoints({
+        managerId: input.managerId,
+        delta: DOCUMENTARY_RATE_ACTIVITY,
+        reason: `Rated Documentary episode #${input.episodeId}`,
+        actionKey: ACTIVITY_ACTIONS.DOCUMENTARY_RATE,
+      });
+    } catch (error) {
+      console.error("[documentary] activity points failed", error);
+    }
   }
 
   const view = await getDocumentaryEpisodeById(

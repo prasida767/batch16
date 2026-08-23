@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, desc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 import { getDb, managerAccounts, managers, notifications } from "@/lib/db";
 import type {
   CreateNotificationInput,
@@ -96,18 +96,22 @@ export async function createNotificationsForManagers(
     (id) => id !== input.actorManagerId,
   );
   if (unique.length === 0) return;
-  await Promise.all(
-    unique.map((recipientManagerId) =>
-      createNotification({ ...input, recipientManagerId }),
-    ),
-  );
+  for (const recipientManagerId of unique) {
+    await createNotification({ ...input, recipientManagerId });
+  }
 }
 
 export async function listNotificationsForManager(
   managerId: number,
-  opts: { limit?: number; unreadOnly?: boolean } = {},
+  opts: { limit?: number; unreadOnly?: boolean; afterId?: number } = {},
 ): Promise<NotificationView[]> {
   const limit = Math.min(Math.max(opts.limit ?? 30, 1), 80);
+  const afterId =
+    typeof opts.afterId === "number" &&
+    Number.isInteger(opts.afterId) &&
+    opts.afterId > 0
+      ? opts.afterId
+      : undefined;
   const db = getDb();
   const rows = await db
     .select({
@@ -129,6 +133,7 @@ export async function listNotificationsForManager(
       and(
         eq(notifications.recipientManagerId, managerId),
         opts.unreadOnly ? isNull(notifications.readAt) : undefined,
+        afterId != null ? gt(notifications.id, afterId) : undefined,
       ),
     )
     .orderBy(desc(notifications.createdAt))

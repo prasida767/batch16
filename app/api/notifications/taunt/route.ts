@@ -16,7 +16,8 @@ export async function POST(request: Request) {
   const cross = rejectCrossOrigin(request);
   if (cross) return cross;
 
-  const actorId = await getActingManagerId();
+  try {
+    const actorId = await getActingManagerId();
   if (!actorId) {
     return NextResponse.json(
       { kind: "error", message: "Sign in required." },
@@ -87,4 +88,15 @@ export async function POST(request: Request) {
   });
 
   return NextResponse.json({ kind: "ok" as const, notification });
+  } catch (error) {
+    console.error("[chat] taunt failed", error);
+    return NextResponse.json(
+      {
+        kind: "error",
+        message:
+          error instanceof Error ? error.message : "Couldn't send taunt.",
+      },
+      { status: 400 },
+    );
+  }
 }

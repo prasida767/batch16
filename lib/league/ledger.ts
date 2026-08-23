@@ -100,11 +100,13 @@ export function buildLedger(args: {
       }, 0);
 
     const seasonPrize = season.get(row.entry) ?? 0;
-    const entryFeePaid = manager?.entryFeePaid ?? false;
+    const verified = manager?.verified ?? false;
+    const entryFeePaid = verified && (manager?.entryFeePaid ?? false);
     const computedBalance = computeManagerBalance({
       weeklyWinnings: winnerShares,
       seasonPrize,
-      entryFee: prize.entryFeeNum,
+      // Unverified seats are not in the pot yet — no entry-fee line.
+      entryFee: verified ? prize.entryFeeNum : 0,
       entryFeePaid,
     });
 
@@ -172,10 +174,10 @@ export function computeBalancesForManagers(args: {
         balance: computeManagerBalance({
           weeklyWinnings: 0,
           seasonPrize: 0,
-          entryFee: args.prize.entryFeeNum,
-          entryFeePaid: manager.entryFeePaid,
+          entryFee: manager.verified ? args.prize.entryFeeNum : 0,
+          entryFeePaid: manager.verified && manager.entryFeePaid,
         }),
-        entryFeePaid: manager.entryFeePaid,
+        entryFeePaid: manager.verified && manager.entryFeePaid,
       };
     });
 }

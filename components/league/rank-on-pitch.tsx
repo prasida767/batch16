@@ -21,6 +21,7 @@ function toOverallRows(rows: ManagerStanding[]): VerticalPitchRow[] {
     points: row.totalPoints,
     gwPoints: row.livePoints ?? row.eventPoints,
     avatarUrl: row.avatarUrl,
+    verified: row.verified,
   }));
 }
 
@@ -50,6 +51,7 @@ function toLiveRows(rows: ManagerStanding[]): VerticalPitchRow[] {
       points: item.total,
       gwPoints: item.gw,
       avatarUrl: item.row.avatarUrl,
+      verified: item.row.verified,
     };
   });
 }

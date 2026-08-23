@@ -4,7 +4,7 @@ import { motion, useReducedMotion } from "framer-motion";
 import { useEffect, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 import { useTweenedNumber } from "@/components/motion/use-tweened-number";
-import { springSnappy } from "@/components/motion/variants";
+import { easeOutSoft } from "@/components/motion/variants";
 
 type AnimatedNumberProps = {
   value: number;
@@ -66,7 +66,11 @@ export function AnimatedNumber({
           ? { scale: [1, 1.06, 1] }
           : { scale: 1 }
       }
-      transition={springSnappy}
+      transition={
+        flash && !reduce
+          ? { duration: 0.45, ease: easeOutSoft, times: [0, 0.4, 1] }
+          : { duration: 0.2, ease: easeOutSoft }
+      }
     >
       {prefix}
       {formatted}

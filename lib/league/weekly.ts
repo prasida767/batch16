@@ -113,3 +113,53 @@ export function buildWeeklyGameweeks(
     };
   });
 }
+
+/** Dashboard last-winner / prize weeks from DB only — no per-manager FPL history. */
+export function buildWeeklyGameweeksFromStored(
+  results: FplLeagueStandingRow[],
+  dbWeekly: StoredWeeklyResult[],
+): WeeklyGameweek[] {
+  if (dbWeekly.length === 0) return [];
+
+  const nameByEntry = new Map(
+    results.map((row) => [row.entry, row.player_name]),
+  );
+  const teamByEntry = new Map(
+    results.map((row) => [row.entry, row.entry_name]),
+  );
+  const gameweeks = [...new Set(dbWeekly.map((row) => row.gameweek))].sort(
+    (a, b) => a - b,
+  );
+
+  return gameweeks.map((gameweek) => {
+    const stored = dbWeekly.filter((row) => row.gameweek === gameweek);
+    const scores: WeeklyManagerScore[] = stored
+      .filter(
+        (row): row is StoredWeeklyResult & { fplEntryId: number } =>
+          row.fplEntryId != null,
+      )
+      .map((row) => ({
+        entryId: row.fplEntryId,
+        name: nameByEntry.get(row.fplEntryId) ?? `Entry ${row.fplEntryId}`,
+        teamName: teamByEntry.get(row.fplEntryId) ?? "",
+        points: row.points,
+        rank: row.rank > 0 ? row.rank : 0,
+        isWinner: row.isWinner,
+      }))
+      .sort(
+        (a, b) => (a.rank || 99) - (b.rank || 99) || b.points - a.points,
+      );
+
+    const winners = scores.filter((row) => row.isWinner);
+    return {
+      gameweek,
+      finished: winners.length > 0,
+      isCurrent: false,
+      winnerNames: winners.map((row) => row.name),
+      winnerEntryIds: winners.map((row) => row.entryId),
+      winnerPoints: winners[0]?.points ?? 0,
+      rows: scores,
+      manuallySet: true,
+    };
+  });
+}

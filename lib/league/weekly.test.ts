@@ -3,7 +3,7 @@ import {
   canAutoDeclareWinners,
   isFplGameweekSettled,
 } from "@/lib/league/winners";
-import { buildWeeklyGameweeks } from "@/lib/league/weekly";
+import { buildWeeklyGameweeks, buildWeeklyGameweeksFromStored } from "@/lib/league/weekly";
 import type { FplBootstrapStatic, FplLeagueStandingRow } from "@/lib/fpl";
 
 function standing(
@@ -215,5 +215,33 @@ describe("buildWeeklyGameweeks winners", () => {
     expect(gw1.finished).toBe(true);
     expect(gw1.winnerEntryIds).toEqual([2]);
     expect(gw1.winnerNames).toEqual(["Prasiddha Khadka"]);
+  });
+});
+
+describe("buildWeeklyGameweeksFromStored", () => {
+  it("builds last-winner weeks from DB rows even with empty histories", () => {
+    const weeks = buildWeeklyGameweeksFromStored(
+      [
+        standing(1, "Abhishek Gupta", 1),
+        standing(2, "Prasiddha Khadka", 2),
+      ],
+      [
+        {
+          gameweek: 3,
+          managerId: 10,
+          fplEntryId: 2,
+          points: 88,
+          rank: 1,
+          isWinner: true,
+        },
+      ],
+    );
+    expect(weeks).toHaveLength(1);
+    expect(weeks[0]?.winnerEntryIds).toEqual([2]);
+    expect(weeks[0]?.finished).toBe(true);
+  });
+
+  it("returns an empty list when the DB has no weekly rows", () => {
+    expect(buildWeeklyGameweeksFromStored([standing(1, "A")], [])).toEqual([]);
   });
 });

@@ -14,6 +14,7 @@ export {
   type ReactionEmoji,
 } from "@/lib/chat/types";
 export {
+  peekChatGameweek,
   archiveChatGameweek,
   ensureChatGameweekRollover,
   forceArchiveGameweek,
