@@ -277,7 +277,7 @@ function ChatCentre({
   const [pending, setPending] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
-  const canPost = managerId != null;
+  const canPost = managerId != null || actingManagerId != null;
 
   useEffect(() => {
     const el = listRef.current;

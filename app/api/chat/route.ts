@@ -26,17 +26,22 @@ export async function GET(request: Request) {
   const afterId = afterRaw ? Number(afterRaw) : undefined;
 
   try {
-    const actingManagerId = await getActingManagerId();
+    // Messages first — never block the board on auth lookup (cold DB connect).
     const { messages, gameweek } = await listActiveChatMessages({
       limit: afterId ? 50 : 100,
       afterId:
         afterId != null && Number.isInteger(afterId) && afterId > 0
           ? afterId
           : undefined,
-      viewerId: actingManagerId,
-      // Never rollover/FPL on GET — that hung Banter Board on "Opening the tunnel…".
+      viewerId: null,
       skipMaintenance: true,
     });
+    let actingManagerId: number | null = null;
+    try {
+      actingManagerId = await getActingManagerId();
+    } catch (error) {
+      console.error("[chat] acting manager skipped", error);
+    }
     let pinned: typeof messages = [];
     let roster: Awaited<ReturnType<typeof listChatRoster>> = [];
     if (!afterId) {

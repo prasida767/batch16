@@ -219,13 +219,7 @@ export function useDressingRoom(
     try {
       const qs =
         afterId != null && afterId > 0 ? `?after=${afterId}` : "";
-      const res = await fetch(`/api/chat${qs}`, {
-        cache: "no-store",
-        signal:
-          typeof AbortSignal !== "undefined" && "timeout" in AbortSignal
-            ? AbortSignal.timeout(8_000)
-            : undefined,
-      });
+      const res = await fetch(`/api/chat${qs}`, { cache: "no-store" });
       const data = (await res.json().catch(() => null)) as
         | ChatOk
         | { kind: "error"; message: string }
@@ -268,7 +262,9 @@ export function useDressingRoom(
         }
       }
     } catch {
-      setError("Couldn't reach the Dressing Room.");
+      if (!afterId) {
+        setError("Couldn't reach the Dressing Room.");
+      }
     } finally {
       setLoading(false);
     }

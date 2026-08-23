@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import { getAuthStatus } from "@/lib/auth/session";
-import { getActiveGwWinnerCelebration } from "@/lib/league/celebration";
 
 export const dynamic = "force-dynamic";
 
@@ -15,13 +14,6 @@ export async function GET() {
       return NextResponse.json({ kind: "signed_out" as const });
     }
 
-    let celebration = null;
-    try {
-      celebration = await getActiveGwWinnerCelebration();
-    } catch {
-      celebration = null;
-    }
-
     return NextResponse.json({
       kind: "ok" as const,
       authLabel: auth.manager?.displayName ?? auth.email,
@@ -29,7 +21,7 @@ export async function GET() {
       managerName: auth.manager?.displayName ?? null,
       needsClaim: auth.claimState === "unlinked",
       isAdmin: auth.isAdmin,
-      celebration,
+      celebration: null,
     });
   } catch (error) {
     console.error("[session] GET failed", error);
