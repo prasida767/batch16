@@ -1,66 +1,45 @@
 import type { ReactNode } from "react";
 import { headers } from "next/headers";
-import { redirect, unstable_rethrow } from "next/navigation";
+import { unstable_rethrow } from "next/navigation";
 import { PublicHeader } from "@/components/layout/public-header";
 import { SignedInShell } from "@/components/layout/signed-in-shell";
 import { SiteFooter } from "@/components/layout/site-footer";
 import { PageTransition } from "@/components/motion/page-transition";
-import { claimPath, isPublicPath } from "@/lib/auth/paths";
-import { getAuthStatus } from "@/lib/auth/session";
-import { getActiveGwWinnerCelebration } from "@/lib/league/celebration";
 
-async function currentPathname() {
+async function requestChrome() {
   try {
     const h = await headers();
-    return h.get("x-pathname") ?? "";
+    const path = h.get("x-pathname") ?? "";
+    const signedIn = h.get("x-signed-in") === "1";
+    const rawEmail = h.get("x-user-email");
+    let email: string | null = null;
+    if (rawEmail) {
+      try {
+        email = decodeURIComponent(rawEmail);
+      } catch {
+        email = rawEmail;
+      }
+    }
+    return {
+      path,
+      signedIn,
+      email,
+      isAdmin: h.get("x-is-admin") === "1",
+    };
   } catch (error) {
     unstable_rethrow(error);
-    return "";
+    return { path: "", signedIn: false, email: null, isAdmin: false };
   }
 }
 
-const SIGNED_OUT = {
-  signedIn: false,
-  email: null,
-  verified: false,
-  claimState: "unknown" as const,
-  isAdmin: false,
-  manager: null,
-};
-
+/**
+ * Chrome only — no Postgres or FPL. Middleware already know if a session
+ * cookie exists; waiting on the database here 504s Hobby deploys (10s).
+ */
 export async function SiteShell({ children }: { children: ReactNode }) {
-  let auth: Awaited<ReturnType<typeof getAuthStatus>> = SIGNED_OUT;
-  try {
-    auth = await getAuthStatus();
-  } catch (error) {
-    unstable_rethrow(error);
-    console.error("[shell] auth failed", error);
-  }
+  const { signedIn, email, isAdmin } = await requestChrome();
 
-  const authLabel =
-    auth.manager?.displayName ?? (auth.signedIn ? auth.email : null);
-  const managerId = auth.manager?.managerId ?? null;
-  const needsClaim = auth.signedIn && auth.claimState === "unlinked";
-
-  const path = await currentPathname();
-  const cinematic =
-    path === "/onboarding/recap" || path.startsWith("/onboarding/recap");
-
-  if (needsClaim && path && !isPublicPath(path) && !cinematic) {
-    redirect(claimPath(path.startsWith("/") ? path : null));
-  }
-
-  let celebration = null;
-  if (auth.signedIn && !cinematic && !path.startsWith("/auth")) {
-    try {
-      celebration = await getActiveGwWinnerCelebration();
-    } catch (error) {
-      unstable_rethrow(error);
-      celebration = null;
-    }
-  }
-
-  if (!auth.signedIn) {
+  if (!signedIn) {
     return (
       <div className="app-canvas flex min-h-screen flex-col">
         <PublicHeader />
@@ -76,12 +55,12 @@ export async function SiteShell({ children }: { children: ReactNode }) {
 
   return (
     <SignedInShell
-      authLabel={authLabel}
-      isAdmin={auth.isAdmin}
-      managerId={managerId}
-      managerName={auth.manager?.displayName ?? null}
-      needsClaim={needsClaim}
-      celebration={celebration}
+      authLabel={email}
+      isAdmin={isAdmin}
+      managerId={null}
+      managerName={null}
+      needsClaim={false}
+      celebration={null}
     >
       {children}
     </SignedInShell>

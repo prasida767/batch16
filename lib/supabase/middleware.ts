@@ -84,9 +84,17 @@ export async function updateSession(request: NextRequest) {
     }
   }
 
-  // Expose pathname to server components (cinematic shell, etc.)
+  // Expose pathname + auth flags so the root layout can draw chrome
+  // without waiting on Postgres (Hobby functions time out at 10s).
   const requestHeaders = new Headers(request.headers);
   requestHeaders.set("x-pathname", pathname);
+  requestHeaders.set("x-signed-in", user ? "1" : "0");
+  if (user?.email) {
+    requestHeaders.set("x-user-email", encodeURIComponent(user.email));
+    if (isAdminEmail(user.email)) {
+      requestHeaders.set("x-is-admin", "1");
+    }
+  }
   const withPath = NextResponse.next({
     request: { headers: requestHeaders },
   });

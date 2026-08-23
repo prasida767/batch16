@@ -3,7 +3,6 @@ import "server-only";
 import { cache } from "react";
 import { and, desc, eq } from "drizzle-orm";
 import { unstable_rethrow } from "next/navigation";
-import { getBootstrapStatic } from "@/lib/fpl";
 import {
   getDb,
   isDatabaseConfigured,
@@ -46,21 +45,9 @@ export const getActiveGwWinnerCelebration = cache(
 
       if (!latest) return null;
 
-      try {
-        const bootstrap = await getBootstrapStatic();
-        const next = bootstrap.events.find(
-          (event) => event.id === latest.gameweek + 1,
-        );
-        if (next) {
-          if (next.finished) return null;
-          const deadlineMs = Date.parse(next.deadline_time);
-          if (Number.isFinite(deadlineMs) && Date.now() >= deadlineMs) {
-            return null;
-          }
-        }
-      } catch {
-        // Still show the overlay if FPL bootstrap is down.
-      }
+      // Do not call FPL here — the overlay lives in every signed-in layout
+      // and a slow bootstrap 504s Hobby deploys. Hide after the next GW
+      // once weekly_results for a later winner exists.
 
       const winnerRows = await db
         .select({

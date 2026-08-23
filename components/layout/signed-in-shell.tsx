@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { DressingRoomLayout } from "@/components/chat/dressing-room-layout";
@@ -22,6 +22,19 @@ type ChromeProps = {
   showNotifications: boolean;
   children: ReactNode;
 };
+
+type SessionPayload =
+  | {
+      kind: "ok";
+      authLabel: string | null;
+      managerId: number | null;
+      managerName: string | null;
+      needsClaim: boolean;
+      isAdmin: boolean;
+      celebration: GwWinnerCelebrationData | null;
+    }
+  | { kind: "signed_out" }
+  | { kind: "error" };
 
 function AppFrame({
   authLabel,
@@ -81,8 +94,8 @@ function AppFrame({
 
 /**
  * Client chrome so the navbar follows the real URL.
- * A server pathname of /auth/continue used to skip the shell and could leave
- * League (and other app pages) with no nav after login.
+ * Manager / celebration load from /api/session after first paint so the
+ * Vercel HTML function is not blocked on Postgres.
  */
 export function SignedInShell({
   authLabel,
@@ -94,9 +107,38 @@ export function SignedInShell({
   children,
 }: Omit<ChromeProps, "showNotifications">) {
   const pathname = usePathname() ?? "";
-  // Hide chrome only in the client so the shell stays mounted. Skipping it in
-  // the server layout (via x-pathname === /auth/continue) left League with no
-  // navbar after login — the root layout does not remount on redirect.
+  const [session, setSession] = useState({
+    authLabel,
+    isAdmin,
+    managerId,
+    managerName,
+    needsClaim,
+    celebration,
+  });
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetch("/api/session", { cache: "no-store" })
+      .then((response) => response.json() as Promise<SessionPayload>)
+      .then((json) => {
+        if (cancelled || json.kind !== "ok") return;
+        setSession({
+          authLabel: json.authLabel ?? authLabel,
+          isAdmin: json.isAdmin,
+          managerId: json.managerId,
+          managerName: json.managerName,
+          needsClaim: json.needsClaim,
+          celebration: json.celebration,
+        });
+      })
+      .catch(() => {
+        /* keep middleware chrome */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [authLabel]);
+
   if (
     pathname.startsWith("/onboarding/recap") ||
     pathname.startsWith("/auth/continue")
@@ -105,12 +147,7 @@ export function SignedInShell({
   }
 
   const frameProps = {
-    authLabel,
-    isAdmin,
-    managerId,
-    managerName,
-    needsClaim,
-    celebration,
+    ...session,
     children,
   };
 
@@ -119,10 +156,10 @@ export function SignedInShell({
       name="notifications-shell"
       fallback={<AppFrame {...frameProps} showNotifications={false} />}
     >
-      <NotificationProvider managerId={managerId}>
+      <NotificationProvider managerId={session.managerId}>
         <AppFrame
           {...frameProps}
-          showNotifications={managerId != null}
+          showNotifications={session.managerId != null}
         />
       </NotificationProvider>
     </FeatureErrorBoundary>

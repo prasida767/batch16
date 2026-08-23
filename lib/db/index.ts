@@ -77,11 +77,10 @@ export function getDb(): Db {
       max: poolMax(),
       idle_timeout: 20,
       max_lifetime: 60 * 5,
-      connect_timeout: 10,
+      connect_timeout: 4,
       connection: {
         application_name: "batch16",
-        // Fail hung statements instead of blocking the only connections.
-        statement_timeout: 8000,
+        statement_timeout: process.env.VERCEL ? 5000 : 8000,
       },
       onclose() {
         // Connection recycling must not become an unhandledRejection overlay.

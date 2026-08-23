@@ -6,32 +6,26 @@ import {
 import { LeagueHub } from "@/components/league/league-hub";
 import { FeatureErrorBoundary } from "@/components/error-boundary";
 import { getVerifiedManager } from "@/lib/auth/session";
-import { getLatestDocumentaryEpisode } from "@/lib/documentary";
 import { getDashboardData } from "@/lib/league";
 import { getUpcomingFixtures } from "@/lib/fpl";
-import { isDatabaseConfigured } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 
 export default async function LeaguePage() {
-  let result: Awaited<ReturnType<typeof getDashboardData>>;
-  try {
-    result = await getDashboardData();
-  } catch (error) {
-    return (
-      <div className="space-y-6">
-        <PageHeader eyebrow="League" title="League table" />
-        <ErrorState
-          message={
-            error instanceof Error
-              ? error.message
-              : "Couldn't load the league right now."
-          }
-        />
-      </div>
-    );
-  }
-  const me = await getVerifiedManager().catch(() => null);
+  const [board, fixtures] = await Promise.all([
+    getDashboardData().catch((error) => {
+      console.error("[league] Dashboard failed", error);
+      return {
+        kind: "error" as const,
+        message:
+          error instanceof Error
+            ? error.message
+            : "Couldn't load the league right now.",
+      };
+    }),
+    getUpcomingFixtures().catch(() => []),
+  ]);
+  const result = board;
 
   if (result.kind === "no_league") {
     return (
@@ -63,16 +57,7 @@ export default async function LeaguePage() {
     ? `Last weekly · ${data.lastWinner.winnerNames.join(", ")} (${data.lastWinner.winnerPoints} pts)`
     : (data.meta.currentEventName ?? "Waiting for the season");
 
-  const fixtures = await getUpcomingFixtures().catch(() => []);
-
-  let latestEpisode = null;
-  if (isDatabaseConfigured()) {
-    try {
-      latestEpisode = await getLatestDocumentaryEpisode(me?.managerId ?? null);
-    } catch {
-      latestEpisode = null;
-    }
-  }
+  const me = await getVerifiedManager().catch(() => null);
 
   return (
     <FeatureErrorBoundary name="League">
@@ -81,7 +66,7 @@ export default async function LeaguePage() {
         currency={data.prize.currency}
         lastWinnerHint={lastWinnerHint}
         initialFixtures={fixtures}
-        featuredEpisode={latestEpisode}
+        featuredEpisode={null}
         highlightEntryId={me?.fplEntryId ?? null}
       />
     </FeatureErrorBoundary>
