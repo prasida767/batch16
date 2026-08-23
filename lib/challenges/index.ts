@@ -1,5 +1,6 @@
 export {
   getActingManagerId,
+  requireActingManagerId,
   listChallengeManagers,
   setActingManagerId,
 } from "@/lib/challenges/identity";

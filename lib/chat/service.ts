@@ -298,7 +298,7 @@ export async function sendChatMessage(input: {
     );
   }
 
-  const gameweek = await ensureChatGameweekRollover();
+  const gameweek = await peekChatGameweek();
   const db = getDb();
 
   if (replyToId) {

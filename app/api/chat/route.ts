@@ -1,6 +1,6 @@
 export const dynamic = "force-dynamic";
 
-import { getActingManagerId } from "@/lib/challenges";
+import { getActingManagerId, requireActingManagerId } from "@/lib/challenges";
 import {
   listActiveChatMessages,
   listPinnedMessages,
@@ -88,16 +88,14 @@ export async function POST(request: Request) {
   }
 
   try {
-    const managerId = await getActingManagerId();
-    if (managerId == null) {
+    const acting = await requireActingManagerId();
+    if (!acting.ok) {
       return Response.json(
-        {
-          kind: "error",
-          message: "Verify your manager account to enter the Dressing Room.",
-        },
-        { status: 401 },
+        { kind: "error", message: acting.message },
+        { status: acting.status },
       );
     }
+    const managerId = acting.managerId;
 
     const limited = checkRateLimit(
       `api-chat:${managerId}`,

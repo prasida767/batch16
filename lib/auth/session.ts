@@ -44,7 +44,7 @@ export const lookupVerifiedManager = cache(async (): Promise<ManagerLookup> => {
     if (!isDatabaseConfigured()) return { kind: "unavailable" };
 
     const db = getDb();
-    const query = db
+    const [row] = await db
       .select({
         userId: managerAccounts.userId,
         email: managerAccounts.email,
@@ -56,14 +56,6 @@ export const lookupVerifiedManager = cache(async (): Promise<ManagerLookup> => {
       .innerJoin(managers, eq(managers.id, managerAccounts.managerId))
       .where(eq(managerAccounts.userId, user.id))
       .limit(1);
-
-    const rows = await Promise.race([
-      query,
-      new Promise<never>((_, reject) => {
-        setTimeout(() => reject(new Error("manager lookup deadline")), 3000);
-      }),
-    ]);
-    const [row] = rows;
 
     if (!row || row.fplEntryId == null) return { kind: "unlinked" };
 

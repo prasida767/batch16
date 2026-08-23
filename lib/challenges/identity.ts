@@ -1,6 +1,9 @@
 import { cookies } from "next/headers";
 import { eq, isNotNull } from "drizzle-orm";
-import { getVerifiedManager } from "@/lib/auth/session";
+import {
+  getVerifiedManager,
+  lookupVerifiedManager,
+} from "@/lib/auth/session";
 import { getDb, managerAccounts, managers } from "@/lib/db";
 import { ACTING_MANAGER_COOKIE } from "@/lib/challenges/types";
 
@@ -9,8 +12,38 @@ import { ACTING_MANAGER_COOKIE } from "@/lib/challenges/types";
  * Cookie impersonation is no longer accepted for challenges / wall.
  */
 export async function getActingManagerId(): Promise<number | null> {
-  const verified = await getVerifiedManager();
-  return verified?.managerId ?? null;
+  const lookup = await lookupVerifiedManager();
+  return lookup.kind === "verified" ? lookup.manager.managerId : null;
+}
+
+/** Same as getActingManagerId, but distinguishes DB failure from unverified. */
+export async function requireActingManagerId(): Promise<
+  | { ok: true; managerId: number }
+  | { ok: false; status: number; message: string }
+> {
+  const lookup = await lookupVerifiedManager();
+  if (lookup.kind === "verified") {
+    return { ok: true, managerId: lookup.manager.managerId };
+  }
+  if (lookup.kind === "unavailable") {
+    return {
+      ok: false,
+      status: 503,
+      message: "Couldn't confirm your account. Try again in a moment.",
+    };
+  }
+  if (lookup.kind === "signed_out") {
+    return {
+      ok: false,
+      status: 401,
+      message: "Sign in to enter the Dressing Room.",
+    };
+  }
+  return {
+    ok: false,
+    status: 401,
+    message: "Verify your manager account to enter the Dressing Room.",
+  };
 }
 
 /** @deprecated Cookie identity removed — use auth claim flow. */

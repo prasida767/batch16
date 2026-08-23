@@ -1,4 +1,4 @@
-import { getActingManagerId } from "@/lib/challenges";
+import { requireActingManagerId } from "@/lib/challenges";
 import { toggleChatReaction } from "@/lib/chat";
 import { isDatabaseConfigured } from "@/lib/db";
 import { rejectCrossOrigin } from "@/lib/security/request";
@@ -19,13 +19,14 @@ export async function POST(request: Request) {
   }
 
   try {
-    const managerId = await getActingManagerId();
-    if (managerId == null) {
+    const acting = await requireActingManagerId();
+    if (!acting.ok) {
       return Response.json(
-        { kind: "error", message: "Verify your manager account first." },
-        { status: 401 },
+        { kind: "error", message: acting.message },
+        { status: acting.status },
       );
     }
+    const managerId = acting.managerId;
 
     const limited = checkRateLimit(
       `react:${managerId}`,
