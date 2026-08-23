@@ -149,14 +149,6 @@ export async function ensureChatGameweekRollover(): Promise<number> {
     if (current > stored) {
       for (let gw = stored; gw < current; gw += 1) {
         await archiveChatGameweek(gw);
-        try {
-          const { generateWeeklyDocumentaryEpisode } = await import(
-            "@/lib/documentary/service"
-          );
-          await generateWeeklyDocumentaryEpisode(gw);
-        } catch {
-          // Episode generation is best-effort.
-        }
       }
       await setStoredActiveGameweek(current);
     } else {

@@ -316,23 +316,28 @@ export function DressingRoomLayout({
         }
       : null;
 
-  if (shouldHide(pathname)) {
-    return <>{children}</>;
-  }
+  const hideChrome = shouldHide(pathname);
 
   return (
-    <div className="flex min-h-0 flex-1">
-      <div className="min-w-0 flex-1">{children}</div>
-      <FeatureErrorBoundary name="Dressing Room" fallback={<ChatUnavailableRail />}>
-        <DressingRoomProvider me={me} enabled={enabled}>
-          <DressingRoomChrome
-            managerId={managerId}
-            managerName={managerName}
-            avatarUrl={avatarUrl}
-            isAdmin={isAdmin}
-          />
-        </DressingRoomProvider>
-      </FeatureErrorBoundary>
-    </div>
+    <DressingRoomProvider me={me} enabled={enabled}>
+      {hideChrome ? (
+        children
+      ) : (
+        <div className="flex min-h-0 flex-1">
+          <div className="min-w-0 flex-1">{children}</div>
+          <FeatureErrorBoundary
+            name="Dressing Room"
+            fallback={<ChatUnavailableRail />}
+          >
+            <DressingRoomChrome
+              managerId={managerId}
+              managerName={managerName}
+              avatarUrl={avatarUrl}
+              isAdmin={isAdmin}
+            />
+          </FeatureErrorBoundary>
+        </div>
+      )}
+    </DressingRoomProvider>
   );
 }

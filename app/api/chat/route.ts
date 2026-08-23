@@ -34,7 +34,8 @@ export async function GET(request: Request) {
           ? afterId
           : undefined,
       viewerId: actingManagerId,
-      skipMaintenance: Boolean(afterId),
+      // Never rollover/FPL on GET — that hung Banter Board on "Opening the tunnel…".
+      skipMaintenance: true,
     });
     let pinned: typeof messages = [];
     let roster: Awaited<ReturnType<typeof listChatRoster>> = [];
