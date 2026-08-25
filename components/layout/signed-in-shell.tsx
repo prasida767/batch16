@@ -70,7 +70,7 @@ function AppFrame({
         </div>
       ) : null}
       {celebration ? (
-        <FeatureErrorBoundary name="celebration" fallback={null}>
+        <FeatureErrorBoundary name="celebration" compact>
           <GwWinnerCelebration celebration={celebration} />
         </FeatureErrorBoundary>
       ) : null}
@@ -135,6 +135,13 @@ export function SignedInShell({
         /* keep middleware chrome */
       });
 
+    return () => {
+      cancelled = true;
+    };
+  }, [authLabel]);
+
+  useEffect(() => {
+    let cancelled = false;
     void fetch("/api/celebration", { cache: "no-store" })
       .then(
         (response) =>
@@ -151,13 +158,13 @@ export function SignedInShell({
         }));
       })
       .catch(() => {
-        /* banner is optional */
+        /* keep last banner if the request fails */
       });
 
     return () => {
       cancelled = true;
     };
-  }, [authLabel]);
+  }, [pathname]);
 
   if (
     pathname.startsWith("/onboarding/recap") ||

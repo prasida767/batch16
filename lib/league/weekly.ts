@@ -3,6 +3,7 @@ import type { StoredWeeklyResult } from "@/lib/league/db";
 import type { WeeklyGameweek, WeeklyManagerScore } from "@/lib/league/types";
 import {
   canAutoDeclareWinners,
+  isDbTrue,
   isFplGameweekSettled,
 } from "@/lib/league/winners";
 
@@ -71,7 +72,7 @@ export function buildWeeklyGameweeks(
       // Admin confirmation: only rows flagged is_winner count as declared.
       const winnerIds = new Set(
         dbRows!
-          .filter((row) => row.isWinner && row.fplEntryId != null)
+          .filter((row) => isDbTrue(row.isWinner) && row.fplEntryId != null)
           .map((row) => row.fplEntryId as number),
       );
       for (const score of scores) {
@@ -144,7 +145,7 @@ export function buildWeeklyGameweeksFromStored(
         teamName: teamByEntry.get(row.fplEntryId) ?? "",
         points: row.points,
         rank: row.rank > 0 ? row.rank : 0,
-        isWinner: row.isWinner,
+        isWinner: isDbTrue(row.isWinner),
       }))
       .sort(
         (a, b) => (a.rank || 99) - (b.rank || 99) || b.points - a.points,

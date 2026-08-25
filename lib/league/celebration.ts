@@ -1,7 +1,7 @@
 import "server-only";
 
 import { cache } from "react";
-import { and, desc, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { unstable_rethrow } from "next/navigation";
 import {
   getDb,
@@ -9,86 +9,44 @@ import {
   managers,
   weeklyResults,
 } from "@/lib/db";
+import {
+  celebrationFromWinnerRows,
+  type GwWinnerView,
+} from "@/lib/league/winners";
 
-export type GwWinnerPerson = {
-  entryId: number;
-  name: string;
-  avatarUrl: string | null;
-  supportedTeamId: number | null;
-  supportedTeamCode: number | null;
-  avatarVariant: number;
-};
-
-export type GwWinnerCelebration = {
-  gameweek: number;
-  winnerPoints: number;
-  celebrationKey: string;
-  winners: GwWinnerPerson[];
-};
+export type GwWinnerPerson = GwWinnerView["winners"][number];
+export type GwWinnerCelebration = GwWinnerView;
 
 /**
  * GW winner overlay from weekly_results only.
  * Must not call getDashboardData() — that rebuilds every FPL history on each tab.
+ * Reads every weekly row and flags winners in JS so a drizzle boolean WHERE
+ * cannot hide an admin-saved winner.
  */
 export async function loadActiveGwWinnerCelebration(): Promise<GwWinnerCelebration | null> {
   if (!isDatabaseConfigured()) return null;
 
   try {
     const db = getDb();
-    const [latest] = await db
-      .select({ gameweek: weeklyResults.gameweek })
-      .from(weeklyResults)
-      .where(eq(weeklyResults.isWinner, true))
-      .orderBy(desc(weeklyResults.gameweek))
-      .limit(1);
-
-    if (!latest) return null;
-
-    const winnerRows = await db
+    const rows = await db
       .select({
+        gameweek: weeklyResults.gameweek,
+        isWinner: weeklyResults.isWinner,
+        points: weeklyResults.points,
         entryId: managers.fplEntryId,
         name: managers.displayName,
         avatarUrl: managers.avatarUrl,
         supportedTeamId: managers.supportedTeamId,
         supportedTeamCode: managers.supportedTeamCode,
         avatarVariant: managers.avatarVariant,
-        points: weeklyResults.points,
       })
       .from(weeklyResults)
-      .innerJoin(managers, eq(managers.id, weeklyResults.managerId))
-      .where(
-        and(
-          eq(weeklyResults.gameweek, latest.gameweek),
-          eq(weeklyResults.isWinner, true),
-        ),
-      );
+      .innerJoin(managers, eq(managers.id, weeklyResults.managerId));
 
-    const winners: GwWinnerPerson[] = winnerRows.flatMap((row) =>
-      row.entryId == null
-        ? []
-        : [
-            {
-              entryId: row.entryId,
-              name: row.name,
-              avatarUrl: row.avatarUrl,
-              supportedTeamId: row.supportedTeamId,
-              supportedTeamCode: row.supportedTeamCode,
-              avatarVariant: row.avatarVariant ?? 0,
-            },
-          ],
-    );
-    if (winners.length === 0) return null;
-
-    return {
-      gameweek: latest.gameweek,
-      winnerPoints: winnerRows[0]?.points ?? 0,
-      celebrationKey: `gw-winner-${latest.gameweek}-${winners
-        .map((w) => w.entryId)
-        .join("-")}`,
-      winners,
-    };
+    return celebrationFromWinnerRows(rows);
   } catch (error) {
     unstable_rethrow(error);
+    console.error("[celebration] load failed", error);
     return null;
   }
 }

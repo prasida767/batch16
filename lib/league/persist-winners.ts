@@ -37,7 +37,7 @@ async function persistSettledWinners(): Promise<void> {
   const stored = board.data.db.weekly.filter(
     (row) => row.gameweek === settled.id,
   );
-  if (stored.length > 0) return;
+  if (stored.some((row) => row.isWinner)) return;
 
   const snapshot = await getLeagueSnapshot();
   if (snapshot.kind !== "ok") return;

@@ -139,7 +139,8 @@ export function WinnersAdmin({
           <CardTitle>Mark weekly winners</CardTitle>
           <CardDescription>
             Override FPL auto-detection for ties, delays, or disputes. Saving
-            also recalculates balances.
+            writes the winner immediately; prize balances update from those
+            saved scores.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -262,7 +263,7 @@ export function WinnersAdmin({
           ) : (
             <Trophy className="size-4" data-icon="inline-start" />
           )}
-          Save winners & recalculate
+          Save winners
         </Button>
         <Button
           type="button"

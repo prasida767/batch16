@@ -31,6 +31,10 @@ function punchline(gameweek: number) {
   return PUNCHLINES[gameweek % PUNCHLINES.length]!;
 }
 
+function teamHref(entryId: number | null | undefined) {
+  return entryId != null && entryId > 0 ? `/managers/${entryId}` : "/league";
+}
+
 function dismissKey(celebrationKey: string) {
   return `gw-overlay-dismiss:${celebrationKey}`;
 }
@@ -572,7 +576,7 @@ function WinnerNavbarBanner({
 
           <div className="relative z-[2] flex shrink-0 items-center gap-1.5 sm:gap-2">
             <Link
-              href={`/managers/${primary.entryId}`}
+              href={teamHref(primary.entryId)}
               className={cn(
                 buttonVariants({ size: "sm" }),
                 "hidden h-8 gap-1.5 rounded-full bg-white/95 px-3 text-xs font-semibold text-emerald-950 hover:bg-amber-50 sm:inline-flex",
@@ -601,7 +605,7 @@ function WinnerNavbarBanner({
               Replay
             </Button>
             <Link
-              href={`/managers/${primary.entryId}`}
+              href={teamHref(primary.entryId)}
               className="inline-flex size-8 items-center justify-center rounded-full bg-white/10 text-white sm:hidden"
               aria-label={`View ${shortNames}`}
             >
@@ -869,7 +873,7 @@ function CelebrationOverlay({
             transition={{ delay: 1.5, duration: 0.35, ease: easeOutSoft }}
           >
             <Link
-              href={`/managers/${primary.entryId}`}
+              href={teamHref(primary.entryId)}
               onClick={onDismiss}
               className={cn(
                 buttonVariants({ size: "lg" }),

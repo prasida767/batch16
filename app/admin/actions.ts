@@ -18,10 +18,14 @@ import {
   fetchManagerEntry,
   fetchManagerHistory,
   leagueRosterRows,
+  type FplLeagueStandingRow,
 } from "@/lib/fpl";
 import { getLeagueId } from "@/lib/league/format";
 import { getLeagueDbState, getLeagueDbStateFresh } from "@/lib/league/db";
-import { buildWeeklyGameweeks } from "@/lib/league/weekly";
+import {
+  buildWeeklyGameweeks,
+  buildWeeklyGameweeksFromStored,
+} from "@/lib/league/weekly";
 import { computeBalancesForManagers } from "@/lib/league/ledger";
 import {
   type ActionResult,
@@ -63,6 +67,61 @@ async function requireAdminAction(): Promise<ActionResult | null> {
     return { ok: false, message: "Unauthorized." };
   }
   return null;
+}
+
+/** Prize balances from saved weekly_results only — no FPL history fan-out. */
+async function writeBalancesFromStoredWeeks(): Promise<string> {
+  const db = await requireDb();
+  const dbState = await getLeagueDbStateFresh();
+  const roster: FplLeagueStandingRow[] = dbState.managers
+    .filter(
+      (manager): manager is (typeof manager) & { fplEntryId: number } =>
+        manager.fplEntryId != null,
+    )
+    .map((manager, index) => ({
+      id: manager.id,
+      event_total: 0,
+      player_name: manager.displayName,
+      rank: index + 1,
+      last_rank: index + 1,
+      rank_sort: index + 1,
+      total: 0,
+      entry: manager.fplEntryId,
+      entry_name: manager.name,
+    }));
+
+  const weeks = buildWeeklyGameweeksFromStored(roster, dbState.weekly);
+  const computed = computeBalancesForManagers({
+    managers: dbState.managers,
+    results: roster,
+    prize: dbState.prize,
+    weeks,
+    seasonComplete: false,
+  });
+
+  for (const row of computed) {
+    const [existing] = await db
+      .select({ id: balances.id })
+      .from(balances)
+      .where(eq(balances.managerId, row.managerId))
+      .limit(1);
+
+    const amount = row.balance.toFixed(2);
+    if (existing) {
+      await db
+        .update(balances)
+        .set({ currentBalance: amount, updatedAt: new Date() })
+        .where(eq(balances.id, existing.id));
+    } else {
+      await db.insert(balances).values({
+        managerId: row.managerId,
+        currentBalance: amount,
+        entryFeePaid: row.entryFeePaid,
+      });
+    }
+  }
+
+  return `Balances updated for ${computed.length} manager${computed.length === 1 ? "" : "s"}.`;
 }
 
 export async function getAdminOverview(): Promise<{
@@ -467,28 +526,6 @@ export async function getWinnersAdminData(gameweek?: number) {
     ]);
 
     const roster = leagueRosterRows(standings);
-    const entryIds = roster.map((row) => row.entry);
-    const histories = new Map<
-      number,
-      Awaited<ReturnType<typeof fetchManagerHistory>>
-    >();
-    await Promise.all(
-      entryIds.map(async (id) => {
-        try {
-          histories.set(id, await fetchManagerHistory(id));
-        } catch {
-          /* skip */
-        }
-      }),
-    );
-
-    const weeks = buildWeeklyGameweeks(
-      roster,
-      bootstrap,
-      histories,
-      dbState.weekly,
-    );
-
     const events = bootstrap.events
       .filter((event) => event.id <= (bootstrap.events.find((e) => e.is_current)?.id ?? 38) + 1)
       .map((event) => ({
@@ -498,14 +535,46 @@ export async function getWinnersAdminData(gameweek?: number) {
         isCurrent: event.is_current,
       }));
 
+    const storedWeeks = buildWeeklyGameweeksFromStored(roster, dbState.weekly);
+    const requested =
+      gameweek && Number.isInteger(gameweek) && gameweek > 0 ? gameweek : null;
     const selected =
-      gameweek && weeks.some((w) => w.gameweek === gameweek)
-        ? gameweek
-        : (weeks.filter((w) => w.finished).at(-1)?.gameweek ??
-          events.find((e) => e.isCurrent)?.id ??
-          weeks.at(-1)?.gameweek ??
+      requested &&
+      (storedWeeks.some((week) => week.gameweek === requested) ||
+        events.some((event) => event.id === requested))
+        ? requested
+        : (storedWeeks.filter((week) => week.finished).at(-1)?.gameweek ??
+          events.find((event) => event.isCurrent)?.id ??
+          storedWeeks.at(-1)?.gameweek ??
           events[0]?.id ??
           1);
+
+    const hasStoredForSelected = dbState.weekly.some(
+      (row) => row.gameweek === selected,
+    );
+
+    let weeks = storedWeeks;
+    if (!hasStoredForSelected) {
+      const histories = new Map<
+        number,
+        Awaited<ReturnType<typeof fetchManagerHistory>>
+      >();
+      await Promise.all(
+        roster.map(async (row) => {
+          try {
+            histories.set(row.entry, await fetchManagerHistory(row.entry));
+          } catch {
+            /* skip */
+          }
+        }),
+      );
+      weeks = buildWeeklyGameweeks(
+        roster,
+        bootstrap,
+        histories,
+        dbState.weekly,
+      );
+    }
 
     const week =
       weeks.find((w) => w.gameweek === selected) ??
@@ -645,8 +714,14 @@ export async function saveWeeklyWinners(
       saved += 1;
     }
 
-    // Auto-recalculate balances after saving winners
-    const recalc = await recalculateBalances();
+    let extra = "";
+    try {
+      extra = ` ${await writeBalancesFromStoredWeeks()}`;
+    } catch (error) {
+      console.error("[admin] balance update after winners skipped", error);
+      extra =
+        " Winners are saved; use Recalculate balances if prize money looks stale.";
+    }
     revalidateLeaguePaths();
 
     const winnerCount = winnerIds.size;
@@ -657,7 +732,7 @@ export async function saveWeeklyWinners(
 
     return {
       ok: true,
-      message: `Saved GW ${gameweek} for ${saved} manager${saved === 1 ? "" : "s"} (${winnerCount} winner${winnerCount === 1 ? "" : "s"}). ${recalc.message}${skippedNote}`,
+      message: `Saved GW ${gameweek} for ${saved} manager${saved === 1 ? "" : "s"} (${winnerCount} winner${winnerCount === 1 ? "" : "s"}).${extra}${skippedNote}`,
     };
   } catch (error) {
     return {
@@ -684,11 +759,17 @@ export async function clearWeeklyWinners(
       .delete(weeklyResults)
       .where(eq(weeklyResults.gameweek, gameweek));
 
-    const recalc = await recalculateBalances();
+    let extra = "";
+    try {
+      extra = ` ${await writeBalancesFromStoredWeeks()}`;
+    } catch (error) {
+      console.error("[admin] balance update after clear skipped", error);
+      extra = " Use Recalculate balances if prize money looks stale.";
+    }
     revalidateLeaguePaths();
     return {
       ok: true,
-      message: `Cleared manual results for GW ${gameweek}. ${recalc.message}`,
+      message: `Cleared manual results for GW ${gameweek}.${extra}`,
     };
   } catch (error) {
     return {

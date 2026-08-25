@@ -17,6 +17,7 @@ import type { UpcomingGameweekFixtures } from "@/lib/fpl";
 import type { DocumentaryEpisodeView } from "@/lib/documentary";
 import { FeaturedEpisodeCard } from "@/components/documentary/featured-episode-card";
 import { FeatureErrorBoundary } from "@/components/error-boundary";
+import { WeeklyWinnerSpotlight } from "@/components/league/weekly-winner";
 import { cn } from "@/lib/utils";
 
 const POLL_MS = 60_000;
@@ -215,6 +216,17 @@ export function LeagueHub({
         <p className="text-sm text-destructive" role="status">
           {error}
         </p>
+      ) : null}
+
+      {initial.lastWinner && initial.lastWinner.winnerNames.length > 0 ? (
+        <FadeIn delay={0.02}>
+          <WeeklyWinnerSpotlight
+            gameweek={initial.lastWinner.gameweek}
+            winnerNames={initial.lastWinner.winnerNames}
+            winnerPoints={initial.lastWinner.winnerPoints}
+            celebrate={false}
+          />
+        </FadeIn>
       ) : null}
 
       {featuredEpisode ? (

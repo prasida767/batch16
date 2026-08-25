@@ -21,6 +21,7 @@ import {
   parseMoney,
   type PrizeConfigFormValues,
 } from "@/lib/prizes";
+import { isDbTrue } from "@/lib/league/winners";
 import type { PrizeSnapshot } from "./types";
 
 export type StoredManager = {
@@ -149,7 +150,10 @@ async function loadLeagueDbState(): Promise<LeagueDbState> {
         verified: Boolean(row.accountUserId),
         activityPoints: row.activityPoints,
       })),
-      weekly: weeklyRows,
+      weekly: weeklyRows.map((row) => ({
+        ...row,
+        isWinner: isDbTrue(row.isWinner),
+      })),
     };
   } catch (error) {
     console.error("[league] Database read failed", error);
