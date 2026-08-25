@@ -122,18 +122,38 @@ export function SignedInShell({
       .then((response) => response.json() as Promise<SessionPayload>)
       .then((json) => {
         if (cancelled || json.kind !== "ok") return;
-        setSession({
+        setSession((prev) => ({
+          ...prev,
           authLabel: json.authLabel ?? authLabel,
           isAdmin: json.isAdmin,
           managerId: json.managerId,
           managerName: json.managerName,
           needsClaim: json.needsClaim,
-          celebration: json.celebration,
-        });
+        }));
       })
       .catch(() => {
         /* keep middleware chrome */
       });
+
+    void fetch("/api/celebration", { cache: "no-store" })
+      .then(
+        (response) =>
+          response.json() as Promise<{
+            kind: string;
+            celebration: GwWinnerCelebrationData | null;
+          }>,
+      )
+      .then((json) => {
+        if (cancelled || json.kind !== "ok") return;
+        setSession((prev) => ({
+          ...prev,
+          celebration: json.celebration,
+        }));
+      })
+      .catch(() => {
+        /* banner is optional */
+      });
+
     return () => {
       cancelled = true;
     };
